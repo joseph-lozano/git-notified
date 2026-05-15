@@ -11,7 +11,6 @@ struct PollOutcome {
     var activitySnapshot: [DropdownRow] = []
     var cursorsToSet: [String: Cursor] = [:]
     var cursorsToClear: [String] = []
-    var reposInitialized: Set<String> = []
     var error: GHError? = nil
     var lastCheckedAt: Date = Date()
 }
@@ -88,13 +87,24 @@ final class Poller {
         // Window threshold for activity (comments/reviews) — 24h before now.
         let windowStart = Date().addingTimeInterval(-Self.activityWindow)
 
-        for repo in activeRepos {
-            // First-observation guard: if this repo was just added, the first poll seeds
-            // cursors but suppresses notification firing so the user is not flooded with
-            // catch-up notifications for pre-existing activity.
-            let isFirstObservation = !state.initializedRepos.contains(repo.id)
+        // Pre-compute the set of PR scopes we've ever observed (any event-type cursor exists).
+        // A PR absent from this set is "first observed" this tick — seed cursors but suppress
+        // notification firing so we don't flood on initial add or mode-widen.
+        let knownPRScopes: Set<String> = {
+            var scopes = Set<String>()
+            for key in state.cursors.keys {
+                if let colon = key.lastIndex(of: ":") {
+                    scopes.insert(String(key[..<colon]))
+                }
+            }
+            return scopes
+        }()
+        func isFirstObservation(repo: WatchedRepo, prNumber: Int) -> Bool {
+            !knownPRScopes.contains("\(repo.slug)#\(prNumber)")
+        }
 
-            // 1. Review requests
+        for repo in activeRepos {
+            // 1. Review requests — independent of mode; always show PRs where review is requested.
             do {
                 let prs = try gh.listReviewRequestedPRs(owner: repo.owner, name: repo.name)
                 for pr in prs {
@@ -104,10 +114,11 @@ final class Poller {
                     let eventID = "\(repo.slug)#\(pr.number):review_requested"
                     let requester = pr.author?.login ?? nil
                     let isNewCursor = state.cursors[key] == nil && outcome.cursorsToSet[key] == nil
+                    let firstObs = isFirstObservation(repo: repo, prNumber: pr.number)
 
                     if isNewCursor {
                         outcome.cursorsToSet[key] = Cursor(updatedAt: pr.updatedAt, eventID: eventID)
-                        if !isFirstObservation {
+                        if !firstObs {
                             outcome.newReviewRequests.append(ReviewRequest(
                                 pr: prRef,
                                 requestedAt: pr.updatedAt,
@@ -133,11 +144,12 @@ final class Poller {
                 continue
             }
 
-            // 2. CI state and comments/reviews on involved PRs
+            // 2. CI state and comments/reviews on in-scope PRs (per repo.mode)
             do {
-                let involved = try gh.listInvolvedPRsWithCI(owner: repo.owner, name: repo.name)
-                for pr in involved {
+                let inScope = try gh.listPRsWithCI(owner: repo.owner, name: repo.name, scope: repo.mode)
+                for pr in inScope {
                     let prRef = pullRequestRef(repo: repo, pr: pr.number, title: pr.title, url: pr.url)
+                    let firstObs = isFirstObservation(repo: repo, prNumber: pr.number)
 
                     // 2a. CI state
                     let ciKey = AppState.cursorKey(repo: repo, prNumber: pr.number, type: .ciState)
@@ -148,7 +160,7 @@ final class Poller {
                     let hadPrevious = state.cursors[ciKey] != nil
 
                     var ciShouldFire = false
-                    if hadPrevious && !isFirstObservation {
+                    if hadPrevious && !firstObs {
                         if previousConclusion == .passing && conclusion == .failing { ciShouldFire = true }
                         if previousConclusion == .failing && conclusion == .passing { ciShouldFire = true }
                     }
@@ -189,7 +201,7 @@ final class Poller {
                             let cid = String(c.id)
                             let isNew = commentCursor.map { $0.isNewer(than: c.created_at, id: cid) } ?? true
                             if isNew {
-                                if !isFirstObservation && commentCursor != nil {
+                                if !firstObs && commentCursor != nil {
                                     outcome.activityEvents.append(ActivityEvent(
                                         kind: .comment,
                                         pr: prRef,
@@ -238,7 +250,7 @@ final class Poller {
                             let rid = String(r.id)
                             let isNew = reviewCursor.map { $0.isNewer(than: submitted, id: rid) } ?? true
                             if isNew {
-                                if !isFirstObservation && reviewCursor != nil {
+                                if !firstObs && reviewCursor != nil {
                                     outcome.activityEvents.append(ActivityEvent(
                                         kind: .review,
                                         pr: prRef,
@@ -279,11 +291,6 @@ final class Poller {
                 if firstError == nil { firstError = .other(exitCode: -1, stderr: error.localizedDescription) }
             }
 
-            // Mark this repo as initialized after a successful processing pass so subsequent
-            // ticks fire notifications for genuinely new activity.
-            if isFirstObservation && firstError == nil {
-                outcome.reposInitialized.insert(repo.id)
-            }
         }
 
         // Clear cursors for entities no longer observed so a re-request / re-introduction

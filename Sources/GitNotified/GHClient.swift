@@ -179,18 +179,21 @@ final class GHClient {
         }
     }
 
-    /// Lists open PRs in a repo where the current user is involved (author, assignee,
-    /// requested reviewer, @mention recipient, or prior commenter/reviewer), with each PR's
-    /// status check rollup so the caller can derive aggregate CI conclusion per PR.
-    func listInvolvedPRsWithCI(owner: String, name: String) throws -> [GHPRWithCI] {
-        let result = try run([
+    /// Lists open PRs in a repo within the given scope (participating uses `involves:@me`;
+    /// all returns every open PR) with each PR's status-check rollup so the caller can
+    /// derive aggregate CI conclusion per PR.
+    func listPRsWithCI(owner: String, name: String, scope: RepoMode) throws -> [GHPRWithCI] {
+        var args = [
             "pr", "list",
             "--repo", "\(owner)/\(name)",
-            "--search", "involves:@me",
             "--state", "open",
             "--limit", "200",
             "--json", "number,title,url,updatedAt,author,statusCheckRollup",
-        ])
+        ]
+        if scope == .participating {
+            args.append(contentsOf: ["--search", "involves:@me"])
+        }
+        let result = try run(args)
         guard result.exitCode == 0 else { throw classify(result) }
         do {
             return try jsonDecoder().decode([GHPRWithCI].self, from: Data(result.stdout.utf8))

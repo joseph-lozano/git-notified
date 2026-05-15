@@ -3,54 +3,72 @@ import AppKit
 
 struct DropdownView: View {
     @EnvironmentObject var model: AppModel
+    @State private var showingManage: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if model.setup.pendingStep != nil {
-                SetupChecklistView(setup: model.setup)
-                    .padding(12)
-                Divider()
+            if showingManage {
+                ManageReposView(isPresented: $showingManage)
             } else {
-                VStack(alignment: .leading, spacing: 14) {
-                    ReviewsRequestedSection(rows: model.reviewRows)
-                    Divider()
-                    CIFailingSection(rows: model.ciFailingRows)
-                    Divider()
-                    ActivitySection(rows: model.activityRows)
-                }
-                .padding(12)
-                Divider()
+                mainContent
             }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Button {
-                    model.showingAddRepo = true
-                } label: {
-                    Label("Add repository…", systemImage: "plus")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-
-                Divider()
-
-                Button(role: .destructive) {
-                    NSApplication.shared.terminate(nil)
-                } label: {
-                    Label("Quit", systemImage: "power")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(12)
-
-            Divider()
-            FooterView()
-                .padding(8)
         }
         .sheet(isPresented: $model.showingAddRepo) {
             AddRepositoryView()
                 .environmentObject(model)
         }
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        if model.setup.pendingStep != nil {
+            SetupChecklistView(setup: model.setup)
+                .padding(12)
+            Divider()
+        } else {
+            VStack(alignment: .leading, spacing: 14) {
+                ReviewsRequestedSection(rows: model.reviewRows)
+                Divider()
+                CIFailingSection(rows: model.ciFailingRows)
+                Divider()
+                ActivitySection(rows: model.activityRows)
+            }
+            .padding(12)
+            Divider()
+        }
+
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                model.showingAddRepo = true
+            } label: {
+                Label("Add repository…", systemImage: "plus")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showingManage = true
+            } label: {
+                Label("Manage repositories…", systemImage: "slider.horizontal.3")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+
+            Divider()
+
+            Button(role: .destructive) {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                Label("Quit", systemImage: "power")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+
+        Divider()
+        FooterView()
+            .padding(8)
     }
 }
 

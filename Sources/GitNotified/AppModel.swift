@@ -77,6 +77,48 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Changes a watched repo's mode. Picker feedback is immediate (the @Published state
+    /// flips this tick); dropdown section content updates on the next poll tick.
+    /// When the mode widens, no special bookkeeping is required — newly-in-scope PRs
+    /// have no cursors and the Poller's per-PR first-observation rule suppresses
+    /// notification firing for them, matching the no-backfill commitment.
+    func setMode(slug: String, mode: RepoMode) {
+        guard let idx = state.repos.firstIndex(where: { $0.id == slug }) else { return }
+        guard state.repos[idx].mode != mode else { return }
+        let previousMode = state.repos[idx].mode
+        state.repos[idx].mode = mode
+
+        if mode == .off || previousMode == .all {
+            // Narrowing scope: drop cursors for PRs the repo no longer scans so a later
+            // re-widen treats them as fresh adds (matches F8).
+            clearRepoCursors(slug: slug)
+            // Drop snapshot rows for this repo until next tick.
+            reviewRows.removeAll { $0.pr.slug == slug }
+            ciFailingRows.removeAll { $0.pr.slug == slug }
+            activityRows.removeAll { $0.pr.slug == slug }
+        }
+
+        persist()
+        poller.pokeNow()
+    }
+
+    func removeRepo(slug: String) {
+        state.repos.removeAll { $0.id == slug }
+        clearRepoCursors(slug: slug)
+        reviewRows.removeAll { $0.pr.slug == slug }
+        ciFailingRows.removeAll { $0.pr.slug == slug }
+        activityRows.removeAll { $0.pr.slug == slug }
+        persist()
+        recheckSetup()
+    }
+
+    private func clearRepoCursors(slug: String) {
+        let prefix = "\(slug)#"
+        for key in state.cursors.keys where key.hasPrefix(prefix) {
+            state.cursors.removeValue(forKey: key)
+        }
+    }
+
     func searchRepos(_ query: String, completion: @escaping ([GHRepoListing]) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
@@ -114,10 +156,7 @@ final class AppModel: ObservableObject {
     private func handleTick(_ outcome: PollOutcome) {
         for (k, v) in outcome.cursorsToSet { state.cursors[k] = v }
         for k in outcome.cursorsToClear { state.cursors.removeValue(forKey: k) }
-        state.initializedRepos.formUnion(outcome.reposInitialized)
-        let stateMutated = !outcome.cursorsToSet.isEmpty
-            || !outcome.cursorsToClear.isEmpty
-            || !outcome.reposInitialized.isEmpty
+        let stateMutated = !outcome.cursorsToSet.isEmpty || !outcome.cursorsToClear.isEmpty
         if stateMutated { persist() }
 
         reviewRows = outcome.reviewsRequestedSnapshot
