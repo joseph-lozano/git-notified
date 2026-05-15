@@ -356,6 +356,17 @@ final class AppModel: ObservableObject {
         persist()
     }
 
+    /// Number of currently-dismissed rows; surfaces a "Restore dismissed" affordance.
+    var dismissedRowCount: Int { state.dismissedRowIDs.count }
+
+    /// Clears the dismissed set and forces a poll so the rows reappear.
+    func restoreDismissed() {
+        guard !state.dismissedRowIDs.isEmpty else { return }
+        state.dismissedRowIDs.removeAll()
+        persist()
+        poller.pokeNow()
+    }
+
     /// Applies hysteresis to the error icon and derives a structured cause for the banner.
     /// A poll counts as "failed" when it produced a global GHError OR when EVERY active
     /// repo failed per-repo. Per-repo failures alone do not escalate the icon.

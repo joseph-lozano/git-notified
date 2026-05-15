@@ -411,6 +411,15 @@ struct FooterView: View {
                 .font(.caption2)
                 .foregroundColor(.secondary)
             Spacer()
+            if model.dismissedRowCount > 0 {
+                Button {
+                    model.restoreDismissed()
+                } label: {
+                    Text("Restore \(model.dismissedRowCount) dismissed")
+                        .font(.caption2)
+                }
+                .buttonStyle(.borderless)
+            }
         }
     }
 
