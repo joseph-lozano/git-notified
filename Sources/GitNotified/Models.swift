@@ -121,6 +121,26 @@ struct ActivityEvent: Codable, Hashable {
     var bodyExcerpt: String?
 }
 
+struct ResumeBanner: Equatable {
+    let durationMinutes: Int
+    let suppressedCount: Int
+
+    var text: String {
+        let durationText = ResumeBanner.scale(minutes: durationMinutes)
+        return "Silenced for \(durationText) — \(suppressedCount) new \(suppressedCount == 1 ? "item" : "items") below"
+    }
+
+    static func scale(minutes: Int) -> String {
+        if minutes < 60 { return "\(minutes) minute\(minutes == 1 ? "" : "s")" }
+        if minutes < 60 * 24 {
+            let h = minutes / 60
+            return "\(h) hour\(h == 1 ? "" : "s")"
+        }
+        let d = minutes / (60 * 24)
+        return "\(d) day\(d == 1 ? "" : "s")"
+    }
+}
+
 enum MenubarIconState: Equatable {
     case idle
     case active(count: Int)

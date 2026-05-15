@@ -28,6 +28,9 @@ final class Poller {
 
     var onTick: ((PollOutcome) -> Void)?
     var stateProvider: (() -> AppState)?
+    /// Optional override for the activity window (Phase 5 expands this during silence).
+    /// Defaults to Self.activityWindow (24h) when nil.
+    var activityWindowProvider: (() -> TimeInterval)?
 
     init(gh: GHClient, baseInterval: TimeInterval = 60, jitterFraction: Double = 0.15) {
         self.gh = gh
@@ -84,8 +87,10 @@ final class Poller {
         var observedReviewActivityKeys = Set<String>()
         var firstError: GHError?
 
-        // Window threshold for activity (comments/reviews) — 24h before now.
-        let windowStart = Date().addingTimeInterval(-Self.activityWindow)
+        // Window threshold for activity (comments/reviews). Phase 5 expands this during
+        // silence to cover the silenced interval, up to a ceiling of 7 days.
+        let windowSize = activityWindowProvider?() ?? Self.activityWindow
+        let windowStart = Date().addingTimeInterval(-windowSize)
 
         // Pre-compute the set of PR scopes we've ever observed (any event-type cursor exists).
         // A PR absent from this set is "first observed" this tick — seed cursors but suppress

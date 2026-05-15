@@ -39,6 +39,19 @@ struct DropdownView: View {
 
         VStack(alignment: .leading, spacing: 6) {
             Button {
+                model.toggleSilence()
+            } label: {
+                HStack {
+                    Image(systemName: model.silenced ? "checkmark" : "bell.slash")
+                    Text(model.silenced ? "Silenced — click to resume" : "Silence notifications")
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+
+            Divider()
+
+            Button {
                 model.showingAddRepo = true
             } label: {
                 Label("Add repository…", systemImage: "plus")
@@ -143,11 +156,28 @@ struct CIFailingSection: View {
 }
 
 struct ActivitySection: View {
+    @EnvironmentObject var model: AppModel
     let rows: [DropdownRow]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("New comments & reviews").font(.headline)
+            if let banner = model.resumeBanner {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "bell.slash")
+                    Text(banner.text).font(.caption)
+                    Spacer()
+                    Button {
+                        model.resumeBanner = nil
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(8)
+                .background(Color.accentColor.opacity(0.12))
+                .cornerRadius(6)
+            }
             if rows.isEmpty {
                 Text("No recent activity in the last 24 hours.")
                     .font(.subheadline)

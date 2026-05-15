@@ -13,6 +13,17 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastError: GHError?
     @Published var showingAddRepo: Bool = false
 
+    /// Silence notifications globally. Polling continues; cursors advance; notifications are
+    /// suppressed for the duration. Silence does not persist across launches.
+    @Published private(set) var silenced: Bool = false
+    /// Wall-clock instant silence began; used to compute the post-resume window expansion.
+    @Published private(set) var silencedSince: Date?
+    /// Banner shown for the first interaction after resume — summarizes the silenced interval.
+    @Published var resumeBanner: ResumeBanner?
+
+    /// Per-tick count of suppressed notifications so the resume banner can total them.
+    private var suppressedSinceSilence: Int = 0
+
     nonisolated private let store: Store
     nonisolated private let gh: GHClient
     private let poller: Poller
@@ -30,6 +41,9 @@ final class AppModel: ObservableObject {
         poller.stateProvider = { [weak self] in
             // Snapshot read; AppState is a value type so the closure copies safely.
             self?.state ?? AppState()
+        }
+        poller.activityWindowProvider = { [weak self] in
+            self?.effectiveActivityWindow ?? Poller.activityWindow
         }
         poller.onTick = { [weak self] outcome in
             self?.handleTick(outcome)
@@ -165,6 +179,12 @@ final class AppModel: ObservableObject {
         lastCheckedAt = outcome.lastCheckedAt
         lastError = outcome.error
 
+        // Count what we would fire so the resume banner can summarize silenced activity.
+        let totalNew = outcome.newReviewRequests.count + outcome.ciChanges.count + outcome.activityEvents.count
+        if silenced {
+            suppressedSinceSilence += totalNew
+        }
+
         for ev in outcome.newReviewRequests {
             let title: String
             if let r = ev.requester {
@@ -173,12 +193,7 @@ final class AppModel: ObservableObject {
                 title = "Review requested"
             }
             let subtitle = "\(ev.pr.displayRef) — \(ev.pr.title)"
-            notifications.post(
-                title: title,
-                subtitle: subtitle,
-                url: ev.pr.url,
-                dedupeKey: ev.eventID
-            )
+            postIfAllowed(title: title, subtitle: subtitle, url: ev.pr.url, dedupeKey: ev.eventID)
         }
 
         for ev in outcome.activityEvents {
@@ -190,12 +205,7 @@ final class AppModel: ObservableObject {
                 title = ev.author.map { "Review submitted by @\($0)" } ?? "Review submitted"
             }
             let subtitle = "\(ev.pr.displayRef) — \(ev.pr.title)"
-            notifications.post(
-                title: title,
-                subtitle: subtitle,
-                url: ev.url,
-                dedupeKey: ev.eventID
-            )
+            postIfAllowed(title: title, subtitle: subtitle, url: ev.url, dedupeKey: ev.eventID)
         }
 
         for ev in outcome.ciChanges {
@@ -209,13 +219,53 @@ final class AppModel: ObservableObject {
                 continue
             }
             let subtitle = "\(ev.pr.displayRef) — \(ev.pr.title)"
-            notifications.post(
-                title: title,
-                subtitle: subtitle,
-                url: ev.pr.url,
-                dedupeKey: ev.eventID
-            )
+            postIfAllowed(title: title, subtitle: subtitle, url: ev.pr.url, dedupeKey: ev.eventID)
         }
+    }
+
+    /// Routes a notification through silence: when silenced, suppresses delivery but the
+    /// dropdown still updates (snapshots already reflect new activity from the outcome).
+    private func postIfAllowed(title: String, subtitle: String, url: String, dedupeKey: String) {
+        guard !silenced else { return }
+        notifications.post(title: title, subtitle: subtitle, url: url, dedupeKey: dedupeKey)
+    }
+
+    // MARK: - Silence
+
+    func toggleSilence() {
+        if silenced {
+            resumeSilence()
+        } else {
+            startSilence()
+        }
+    }
+
+    private func startSilence() {
+        silenced = true
+        silencedSince = Date()
+        suppressedSinceSilence = 0
+    }
+
+    private func resumeSilence() {
+        let startedAt = silencedSince ?? Date()
+        let minutes = max(0, Int(Date().timeIntervalSince(startedAt) / 60))
+        let count = suppressedSinceSilence
+        silenced = false
+        silencedSince = nil
+        suppressedSinceSilence = 0
+        if count > 0 || minutes >= 1 {
+            resumeBanner = ResumeBanner(durationMinutes: minutes, suppressedCount: count)
+        }
+    }
+
+    /// 24h baseline; expanded to cover silence interval (capped at 7 days) so the user
+    /// can see what they missed when resuming a long silence. The Poller reads this each
+    /// tick when computing the activity window.
+    var effectiveActivityWindow: TimeInterval {
+        let base = Poller.activityWindow
+        guard silenced, let since = silencedSince else { return base }
+        let silenceSpan = Date().timeIntervalSince(since)
+        return min(7 * 24 * 60 * 60, max(base, silenceSpan))
     }
 
     private func persist() {
