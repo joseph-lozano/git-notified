@@ -5,6 +5,12 @@ struct DropdownView: View {
     @EnvironmentObject var model: AppModel
     @State private var showingManage: Bool = false
 
+    // PROTOTYPE — remove with the rest of Prototype/ once a winner is picked.
+    @AppStorage("prototype-dropdown-variant") private var rawVariant: String = PrototypeVariant.original.rawValue
+    private var variant: PrototypeVariant {
+        get { PrototypeVariant(rawValue: rawVariant) ?? .original }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if showingManage {
@@ -32,17 +38,33 @@ struct DropdownView: View {
             Divider()
         } else {
             VStack(alignment: .leading, spacing: 14) {
+                // PROTOTYPE switcher — top of dropdown, clearly labeled. Delete with Prototype/.
+                PrototypeSwitcher(variant: Binding(
+                    get: { variant },
+                    set: { rawVariant = $0.rawValue }
+                ))
+
                 if !model.repoFailures.isEmpty {
                     RepoFailuresSection(failures: Array(model.repoFailures.values))
                     Divider()
                 }
-                ReviewsRequestedSection(rows: model.reviewRows)
-                Divider()
-                CIFailingSection(rows: model.ciFailingRows)
-                Divider()
-                CommentsSection(rows: model.commentRows)
-                Divider()
-                ReviewsSection(rows: model.reviewSubmissionRows)
+
+                switch variant {
+                case .original:
+                    ReviewsRequestedSection(rows: model.reviewRows)
+                    Divider()
+                    CIFailingSection(rows: model.ciFailingRows)
+                    Divider()
+                    CommentsSection(rows: model.commentRows)
+                    Divider()
+                    ReviewsSection(rows: model.reviewSubmissionRows)
+                case .a:
+                    PrototypeVariantA()
+                case .b:
+                    PrototypeVariantB()
+                case .c:
+                    PrototypeVariantC()
+                }
             }
             .padding(12)
             Divider()
