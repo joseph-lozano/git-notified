@@ -121,6 +121,58 @@ struct ActivityEvent: Codable, Hashable {
     var bodyExcerpt: String?
 }
 
+/// Structured error causes surfaced in the dropdown banner. Drawn from a small named set
+/// so the UI always has a recognized message + action affordance.
+enum AppCause: Equatable {
+    case notSignedIn
+    case rateLimited(resetAt: Date?)
+    case networkUnavailable
+    case insufficientScope
+    case parseError
+    case notificationsDisabled
+    case corruptedState(path: String)
+
+    var message: String {
+        switch self {
+        case .notSignedIn:
+            return "Not signed in to GitHub — Run `gh auth login`"
+        case .rateLimited(let resetAt):
+            if let r = resetAt {
+                let f = DateFormatter(); f.timeStyle = .short; f.dateStyle = .none
+                return "GitHub rate limit exceeded — Retrying at \(f.string(from: r))"
+            }
+            return "GitHub rate limit exceeded — Will retry"
+        case .networkUnavailable:
+            return "Network unavailable — Will retry"
+        case .insufficientScope:
+            return "gh token has insufficient scope — Run `gh auth login` to re-grant"
+        case .parseError:
+            return "Could not read GitHub response — gh may have been updated"
+        case .notificationsDisabled:
+            return "Notifications disabled — Open System Settings"
+        case .corruptedState:
+            return "Corrupted state file"
+        }
+    }
+}
+
+/// A single failing repository surfaced as a "No access" row in the dropdown instead of
+/// its normal sections. Does NOT escalate the global menubar icon to error state.
+struct RepoFailure: Equatable {
+    enum Cause: String, Equatable { case notFound, accessRevoked, renamedOrTransferred, unknown }
+    var slug: String
+    var cause: Cause
+
+    var copy: String {
+        switch cause {
+        case .notFound: return "No access — Repository not found"
+        case .accessRevoked: return "No access — Access revoked"
+        case .renamedOrTransferred: return "No access — Repository not found — may have been renamed or transferred"
+        case .unknown: return "No access"
+        }
+    }
+}
+
 struct ResumeBanner: Equatable {
     let durationMinutes: Int
     let suppressedCount: Int

@@ -11,6 +11,11 @@ struct PollOutcome {
     var activitySnapshot: [DropdownRow] = []
     var cursorsToSet: [String: Cursor] = [:]
     var cursorsToClear: [String] = []
+    /// Per-repo failures (404 / access revoked) keyed by repo slug. These do NOT escalate
+    /// the global error icon unless every active repo failed this tick.
+    var repoFailures: [String: RepoFailure] = [:]
+    /// Repos that completed at least one successful gh call this tick.
+    var successfulRepos: Set<String> = []
     var error: GHError? = nil
     var lastCheckedAt: Date = Date()
 }
@@ -109,9 +114,11 @@ final class Poller {
         }
 
         for repo in activeRepos {
+            var repoSucceededAny = false
             // 1. Review requests — independent of mode; always show PRs where review is requested.
             do {
                 let prs = try gh.listReviewRequestedPRs(owner: repo.owner, name: repo.name)
+                repoSucceededAny = true
                 for pr in prs {
                     let prRef = pullRequestRef(repo: repo, pr: pr.number, title: pr.title, url: pr.url)
                     let key = AppState.cursorKey(repo: repo, prNumber: pr.number, type: .reviewRequested)
@@ -141,6 +148,9 @@ final class Poller {
                         sortKey: pr.updatedAt
                     ))
                 }
+            } catch GHError.notFound {
+                outcome.repoFailures[repo.id] = RepoFailure(slug: repo.id, cause: .notFound)
+                continue
             } catch let err as GHError {
                 if firstError == nil { firstError = err }
                 continue // Skip CI/activity for this repo if we can't even list PRs.
@@ -152,6 +162,7 @@ final class Poller {
             // 2. CI state and comments/reviews on in-scope PRs (per repo.mode)
             do {
                 let inScope = try gh.listPRsWithCI(owner: repo.owner, name: repo.name, scope: repo.mode)
+                repoSucceededAny = true
                 for pr in inScope {
                     let prRef = pullRequestRef(repo: repo, pr: pr.number, title: pr.title, url: pr.url)
                     let firstObs = isFirstObservation(repo: repo, prNumber: pr.number)
@@ -290,12 +301,17 @@ final class Poller {
                         outcome.cursorsToSet[reviewKey] = Cursor(updatedAt: windowStart, eventID: "")
                     }
                 }
+            } catch GHError.notFound {
+                outcome.repoFailures[repo.id] = RepoFailure(slug: repo.id, cause: .notFound)
             } catch let err as GHError {
                 if firstError == nil { firstError = err }
             } catch {
                 if firstError == nil { firstError = .other(exitCode: -1, stderr: error.localizedDescription) }
             }
 
+            if repoSucceededAny {
+                outcome.successfulRepos.insert(repo.id)
+            }
         }
 
         // Clear cursors for entities no longer observed so a re-request / re-introduction

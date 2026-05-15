@@ -21,12 +21,21 @@ struct DropdownView: View {
 
     @ViewBuilder
     private var mainContent: some View {
+        if let cause = model.appCause {
+            StatusBannerView(cause: cause)
+                .padding(12)
+            Divider()
+        }
         if model.setup.pendingStep != nil {
             SetupChecklistView(setup: model.setup)
                 .padding(12)
             Divider()
         } else {
             VStack(alignment: .leading, spacing: 14) {
+                if !model.repoFailures.isEmpty {
+                    RepoFailuresSection(failures: Array(model.repoFailures.values))
+                    Divider()
+                }
                 ReviewsRequestedSection(rows: model.reviewRows)
                 Divider()
                 CIFailingSection(rows: model.ciFailingRows)
@@ -150,6 +159,83 @@ struct CIFailingSection: View {
                 ForEach(rows) { row in
                     RowView(row: row)
                 }
+            }
+        }
+    }
+}
+
+struct StatusBannerView: View {
+    @EnvironmentObject var model: AppModel
+    let cause: AppCause
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(cause.message).font(.subheadline)
+                }
+                Spacer()
+            }
+            HStack(spacing: 8) {
+                actionButton
+                if case .corruptedState = cause {
+                    Button("Open folder") {
+                        if let dir = try? Store.defaultDirectory() {
+                            NSWorkspace.shared.open(dir)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.12))
+        .cornerRadius(6)
+    }
+
+    @ViewBuilder
+    private var actionButton: some View {
+        switch cause {
+        case .notificationsDisabled:
+            Button("Open System Settings") {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+        case .corruptedState:
+            Button("Reset state (you may receive notifications for recent events)") {
+                model.resetCorruptedState()
+            }
+            .buttonStyle(.borderedProminent)
+        default:
+            Button("Retry now") {
+                model.retryNow()
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+}
+
+struct RepoFailuresSection: View {
+    @EnvironmentObject var model: AppModel
+    let failures: [RepoFailure]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(failures, id: \.slug) { f in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(f.slug).font(.subheadline)
+                        Text(f.copy).font(.caption).foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button("Remove") { model.removeRepo(slug: f.slug) }
+                        .buttonStyle(.bordered)
+                }
+                .padding(.vertical, 2)
             }
         }
     }

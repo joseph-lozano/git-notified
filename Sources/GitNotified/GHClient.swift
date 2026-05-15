@@ -7,6 +7,7 @@ enum GHError: Error, LocalizedError {
     case rateLimited(resetAt: Date?)
     case insufficientScope
     case parseError(String)
+    case notFound
     case other(exitCode: Int32, stderr: String)
 
     var errorDescription: String? {
@@ -17,6 +18,7 @@ enum GHError: Error, LocalizedError {
         case .rateLimited(let r): return "GitHub rate limit exceeded\(r.map { " (resets \($0))" } ?? "")"
         case .insufficientScope: return "gh token has insufficient scope"
         case .parseError(let m): return "Could not read GitHub response: \(m)"
+        case .notFound: return "Repository not found or access revoked"
         case .other(_, let s): return s
         }
     }
@@ -298,6 +300,9 @@ final class GHClient {
         }
         if combined.contains("must have") && combined.contains("scope") {
             return .insufficientScope
+        }
+        if combined.contains("404") || combined.contains("not found") || combined.contains("could not resolve to a repository") {
+            return .notFound
         }
         return .other(exitCode: result.exitCode, stderr: result.stderr.isEmpty ? result.stdout : result.stderr)
     }

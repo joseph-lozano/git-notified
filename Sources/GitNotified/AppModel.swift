@@ -11,6 +11,13 @@ final class AppModel: ObservableObject {
     @Published private(set) var activityRows: [DropdownRow] = []
     @Published private(set) var lastCheckedAt: Date?
     @Published private(set) var lastError: GHError?
+    @Published private(set) var appCause: AppCause?
+    @Published private(set) var repoFailures: [String: RepoFailure] = [:]
+
+    /// Hysteresis: the icon flips to .error on a single failed poll but only flips back
+    /// after two consecutive successful polls. Counts successes since the last failure.
+    private var consecutiveSuccesses: Int = 0
+    private var inErrorState: Bool = false
     @Published var showingAddRepo: Bool = false
 
     /// Silence notifications globally. Polling continues; cursors advance; notifications are
@@ -52,6 +59,12 @@ final class AppModel: ObservableObject {
 
     func bootstrap() {
         notifications.requestAuthorization()
+        notifications.refreshAuthState { [weak self] state in
+            if state == .denied {
+                self?.appCause = .notificationsDisabled
+                self?.inErrorState = true
+            }
+        }
         recheckSetup { [weak self] status in
             guard let self else { return }
             if status.isComplete {
@@ -178,6 +191,9 @@ final class AppModel: ObservableObject {
         activityRows = outcome.activitySnapshot
         lastCheckedAt = outcome.lastCheckedAt
         lastError = outcome.error
+        repoFailures = outcome.repoFailures
+
+        updateErrorStateAndCause(outcome: outcome)
 
         // Count what we would fire so the resume banner can summarize silenced activity.
         let totalNew = outcome.newReviewRequests.count + outcome.ciChanges.count + outcome.activityEvents.count
@@ -279,8 +295,64 @@ final class AppModel: ObservableObject {
 
     var iconState: MenubarIconState {
         if setup.pendingStep != nil { return .setup }
-        if lastError != nil { return .error }
+        if inErrorState { return .error }
         let count = reviewRows.count + ciFailingRows.count + activityRows.count
         return count == 0 ? .idle : .active(count: count)
+    }
+
+    /// Applies hysteresis to the error icon and derives a structured cause for the banner.
+    /// A poll counts as "failed" when it produced a global GHError OR when EVERY active
+    /// repo failed per-repo. Per-repo failures alone do not escalate the icon.
+    private func updateErrorStateAndCause(outcome: PollOutcome) {
+        let activeRepoSlugs = state.repos.filter { $0.mode != .off }.map(\.id)
+        let allReposFailed = !activeRepoSlugs.isEmpty
+            && activeRepoSlugs.allSatisfy { outcome.repoFailures[$0] != nil }
+        let tickFailed = outcome.error != nil || allReposFailed
+
+        if tickFailed {
+            consecutiveSuccesses = 0
+            inErrorState = true
+            appCause = mapCause(error: outcome.error, allReposFailed: allReposFailed)
+        } else {
+            consecutiveSuccesses += 1
+            // Spec: clear only after two consecutive successful polls (F26 anti-flap).
+            if consecutiveSuccesses >= 2 {
+                inErrorState = false
+                appCause = nil
+            }
+        }
+    }
+
+    private func mapCause(error: GHError?, allReposFailed: Bool) -> AppCause? {
+        if let err = error {
+            switch err {
+            case .notSignedIn: return .notSignedIn
+            case .rateLimited(let at): return .rateLimited(resetAt: at)
+            case .networkUnavailable: return .networkUnavailable
+            case .insufficientScope: return .insufficientScope
+            case .parseError: return .parseError
+            case .notInstalled: return .notSignedIn // surfaces in setup checklist already
+            case .notFound, .other:
+                return allReposFailed ? .networkUnavailable : nil
+            }
+        }
+        return nil
+    }
+
+    func retryNow() {
+        poller.pokeNow()
+    }
+
+    func acknowledgeCorruptedState(path: String) {
+        appCause = .corruptedState(path: path)
+        inErrorState = true
+    }
+
+    func resetCorruptedState() {
+        state = AppState(repos: state.repos)
+        appCause = nil
+        inErrorState = false
+        persist()
+        poller.pokeNow()
     }
 }

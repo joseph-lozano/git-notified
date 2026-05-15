@@ -41,9 +41,12 @@ struct MenubarLabel: View {
                     .font(.system(size: 11, weight: .semibold))
             }
         case .setup:
-            Image(systemName: "bell.badge.slash")
+            // Neutral, additive overlay — distinct from the reactive error icon.
+            Image(systemName: "bell.badge.plus")
         case .error:
-            Image(systemName: "exclamationmark.triangle.fill")
+            // Reactive, attention-grabbing overlay — distinct from the additive setup icon.
+            Image(systemName: "bell.badge.fill")
+                .foregroundStyle(.red)
         }
     }
 }
