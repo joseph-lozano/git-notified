@@ -43,6 +43,12 @@ struct MenubarLabel: View {
     let state: MenubarIconState
 
     var body: some View {
+        content
+            .accessibilityLabel(accessibleLabel)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch state {
         case .idle:
             Image(systemName: "bell")
@@ -59,6 +65,16 @@ struct MenubarLabel: View {
             // Reactive, attention-grabbing overlay — distinct from the additive setup icon.
             Image(systemName: "bell.badge.fill")
                 .foregroundStyle(.red)
+        }
+    }
+
+    /// State-inclusive accessible labels per spec's Accessibility section.
+    private var accessibleLabel: String {
+        switch state {
+        case .idle: return "git-notified, no outstanding items"
+        case .active(let n): return "git-notified, \(n) outstanding \(n == 1 ? "item" : "items")"
+        case .setup: return "git-notified, setup required"
+        case .error: return "git-notified, error"
         }
     }
 }

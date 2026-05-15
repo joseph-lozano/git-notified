@@ -57,6 +57,8 @@ struct DropdownView: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(model.silenced ? "Silenced, button, on" : "Silence notifications, button, off")
+            .keyboardShortcut("s", modifiers: [.command])
 
             Divider()
 
@@ -139,6 +141,7 @@ struct ReviewsRequestedSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Reviews requested").font(.headline)
+                .accessibilityAddTraits(.isHeader)
             if rows.isEmpty {
                 Text("No pending review requests.")
                     .font(.subheadline)
@@ -159,6 +162,7 @@ struct CIFailingSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("CI failing").font(.headline)
+                .accessibilityAddTraits(.isHeader)
             if rows.isEmpty {
                 Text("No failing CI.")
                     .font(.subheadline)
@@ -202,6 +206,8 @@ struct StatusBannerView: View {
         .padding(8)
         .background(Color.orange.opacity(0.12))
         .cornerRadius(6)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Status banner: \(cause.message)")
     }
 
     @ViewBuilder
@@ -257,6 +263,7 @@ struct ActivitySection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("New comments & reviews").font(.headline)
+                .accessibilityAddTraits(.isHeader)
             if let banner = model.resumeBanner {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "bell.slash")
@@ -317,6 +324,9 @@ struct RowView: View {
         }
         .buttonStyle(.plain)
         .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(row.pr.displayRef), \(row.pr.title), \(row.summary), \(row.age)")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
