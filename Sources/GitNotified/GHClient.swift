@@ -150,6 +150,28 @@ final class GHClient {
         return executableSearchPaths.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    /// Detects whether `gh` exists somewhere on the user's interactive shell PATH but is
+    /// not reachable from the app's runtime environment. Used to distinguish the spec's
+    /// "Install gh" copy from the "gh not found in this app's environment" copy when the
+    /// app is launched as a Login Item with a minimal PATH (F4).
+    func detectInstalledButNotReachable() -> Bool {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/bash")
+        proc.arguments = ["-lic", "command -v gh || true"]
+        let outPipe = Pipe()
+        proc.standardOutput = outPipe
+        proc.standardError = Pipe()
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+            let out = String(decoding: outPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return !out.isEmpty
+        } catch {
+            return false
+        }
+    }
+
     /// Returns true if `gh auth status` reports a signed-in user.
     /// Throws .networkUnavailable for network-style errors so callers can distinguish.
     func checkAuth() throws -> Bool {

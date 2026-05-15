@@ -2,12 +2,14 @@ import Foundation
 
 enum SetupStep: Equatable {
     case installGh
+    case ghNotReachable    // installed somewhere on user PATH but not in app's runtime PATH (F4)
     case signIn
     case addRepo
 
     var label: String {
         switch self {
         case .installGh: return "Install gh"
+        case .ghNotReachable: return "`gh` not found in this app's environment"
         case .signIn: return "Sign in with `gh auth login`"
         case .addRepo: return "Add a repository"
         }
@@ -16,8 +18,10 @@ enum SetupStep: Equatable {
 
 struct SetupStatus: Equatable {
     var ghInstalled: Bool
+    var ghReachable: Bool
     var signedIn: Bool
     var hasRepo: Bool
+    var authNetworkError: Bool
     var pendingStep: SetupStep?
 
     var isComplete: Bool { pendingStep == nil }
@@ -32,17 +36,32 @@ final class SetupChecker {
 
     /// Synchronous check; callers should run off the main thread.
     func evaluate(state: AppState) -> SetupStatus {
-        let ghInstalled = gh.locateExecutable() != nil
+        let ghReachable = gh.locateExecutable() != nil
+        var ghInstalled = ghReachable
+        if !ghReachable {
+            // F4: if gh is installed but not on the app's PATH, surface a distinct copy.
+            ghInstalled = gh.detectInstalledButNotReachable()
+        }
+
         var signedIn = false
-        if ghInstalled {
-            // checkAuth throws .networkUnavailable for network-style errors; treat as "not signed in"
-            // for setup purposes — Phase 6/7 will route network failures into the error state instead.
-            signedIn = (try? gh.checkAuth()) ?? false
+        var authNetworkError = false
+        if ghReachable {
+            do {
+                signedIn = try gh.checkAuth()
+            } catch GHError.networkUnavailable {
+                authNetworkError = true
+            } catch {
+                signedIn = false
+            }
         }
         let hasRepo = state.repos.contains { $0.mode != .off }
 
+        // F13: a network error on auth-check is an error-state condition, not a setup-state one.
+        // Surface as no pending step so AppModel can route into AppCause.networkUnavailable instead.
         let pending: SetupStep? = {
-            if !ghInstalled { return .installGh }
+            if authNetworkError { return nil }
+            if !ghReachable && ghInstalled { return .ghNotReachable }
+            if !ghReachable { return .installGh }
             if !signedIn { return .signIn }
             if !hasRepo { return .addRepo }
             return nil
@@ -50,8 +69,10 @@ final class SetupChecker {
 
         return SetupStatus(
             ghInstalled: ghInstalled,
+            ghReachable: ghReachable,
             signedIn: signedIn,
             hasRepo: hasRepo,
+            authNetworkError: authNetworkError,
             pendingStep: pending
         )
     }

@@ -100,7 +100,16 @@ struct SetupChecklistView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Setup").font(.headline)
-            checklistRow(done: setup.ghInstalled, label: "Install `gh`", pending: setup.pendingStep == .installGh, detail: setup.pendingStep == .installGh ? "Download from cli.github.com" : nil)
+            if setup.pendingStep == .ghNotReachable {
+                checklistRow(
+                    done: false,
+                    label: "`gh` not found in this app's environment",
+                    pending: true,
+                    detail: "If gh is already installed (e.g. via Homebrew), the app may not see your shell's PATH when launched as a Login Item. See Troubleshooting."
+                )
+            } else {
+                checklistRow(done: setup.ghReachable, label: "Install `gh`", pending: setup.pendingStep == .installGh, detail: setup.pendingStep == .installGh ? "Download from cli.github.com" : nil)
+            }
             checklistRow(done: setup.signedIn, label: "Sign in with `gh auth login`", pending: setup.pendingStep == .signIn, detail: setup.pendingStep == .signIn ? "Run `gh auth login` in your terminal" : nil)
             checklistRow(done: setup.hasRepo, label: "Add a repository", pending: setup.pendingStep == .addRepo, detail: nil)
         }

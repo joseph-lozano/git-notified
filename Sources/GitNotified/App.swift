@@ -4,6 +4,18 @@ import AppKit
 @main
 struct GitNotifiedApp: App {
     @StateObject private var model: AppModel = {
+        // Single-instance enforcement (D20, F5): if another instance with the same bundle
+        // identifier is already running on this Mac, activate it and exit. This makes the
+        // Login Item + manual launch case safe by default.
+        if let bundleID = Bundle.main.bundleIdentifier {
+            let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+                .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+            if let other = running.first {
+                other.activate(options: [])
+                exit(0)
+            }
+        }
+
         let gh = GHClient()
         let store: Store
         do {

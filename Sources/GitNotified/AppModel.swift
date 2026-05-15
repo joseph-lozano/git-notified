@@ -43,7 +43,7 @@ final class AppModel: ObservableObject {
         self.state = store.load()
         self.poller = Poller(gh: gh)
         self.setupChecker = SetupChecker(gh: gh)
-        self.setup = SetupStatus(ghInstalled: false, signedIn: false, hasRepo: false, pendingStep: .installGh)
+        self.setup = SetupStatus(ghInstalled: false, ghReachable: false, signedIn: false, hasRepo: false, authNetworkError: false, pendingStep: .installGh)
 
         poller.stateProvider = { [weak self] in
             // Snapshot read; AppState is a value type so the closure copies safely.
@@ -83,6 +83,11 @@ final class AppModel: ObservableObject {
             let status = self.setupChecker.evaluate(state: snapshot)
             DispatchQueue.main.async {
                 self.setup = status
+                // F13: route auth-network errors into the error banner instead of the setup checklist.
+                if status.authNetworkError {
+                    self.appCause = .networkUnavailable
+                    self.inErrorState = true
+                }
                 completion?(status)
             }
         }
