@@ -89,24 +89,31 @@ struct AppState: Codable {
     /// no-backfill-on-add rule. A repo absent from this set is treated as fresh:
     /// its initial poll seeds cursors but suppresses notification firing.
     var initializedRepos: Set<String> = []
+    /// Dropdown row IDs the user has explicitly dismissed via "Clear". Filtered out of
+    /// snapshots until the row's underlying event ages out of the activity window, at
+    /// which point the ID is pruned. This is dropdown-only — the notification path is
+    /// unaffected (cursors govern what gets notified).
+    var dismissedRowIDs: Set<String> = []
 
     static func cursorKey(repo: WatchedRepo, prNumber: Int, type: EventType) -> String {
         "\(repo.slug)#\(prNumber):\(type.rawValue)"
     }
 
-    init(repos: [WatchedRepo] = [], cursors: [String: Cursor] = [:], initializedRepos: Set<String> = []) {
+    init(repos: [WatchedRepo] = [], cursors: [String: Cursor] = [:], initializedRepos: Set<String> = [], dismissedRowIDs: Set<String> = []) {
         self.repos = repos
         self.cursors = cursors
         self.initializedRepos = initializedRepos
+        self.dismissedRowIDs = dismissedRowIDs
     }
 
-    enum CodingKeys: String, CodingKey { case repos, cursors, initializedRepos }
+    enum CodingKeys: String, CodingKey { case repos, cursors, initializedRepos, dismissedRowIDs }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.repos = (try? c.decode([WatchedRepo].self, forKey: .repos)) ?? []
         self.cursors = (try? c.decode([String: Cursor].self, forKey: .cursors)) ?? [:]
         self.initializedRepos = (try? c.decode(Set<String>.self, forKey: .initializedRepos)) ?? []
+        self.dismissedRowIDs = (try? c.decode(Set<String>.self, forKey: .dismissedRowIDs)) ?? []
     }
 }
 

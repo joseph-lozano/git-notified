@@ -40,7 +40,9 @@ struct DropdownView: View {
                 Divider()
                 CIFailingSection(rows: model.ciFailingRows)
                 Divider()
-                ActivitySection(rows: model.activityRows)
+                CommentsSection(rows: model.commentRows)
+                Divider()
+                ReviewsSection(rows: model.reviewSubmissionRows)
             }
             .padding(12)
             Divider()
@@ -135,13 +137,35 @@ struct SetupChecklistView: View {
     }
 }
 
+/// Reusable section header with title and an optional Clear button. The Clear button is
+/// shown only when there are rows to clear and dispatches to AppModel.clear(target:).
+struct SectionHeader: View {
+    @EnvironmentObject var model: AppModel
+    let title: String
+    let hasRows: Bool
+    let target: AppModel.ClearTarget?
+
+    var body: some View {
+        HStack {
+            Text(title).font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            if hasRows, let target {
+                Button("Clear") { model.clear(target) }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .accessibilityLabel("Clear \(title)")
+            }
+        }
+    }
+}
+
 struct ReviewsRequestedSection: View {
     let rows: [DropdownRow]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Reviews requested").font(.headline)
-                .accessibilityAddTraits(.isHeader)
+            SectionHeader(title: "Reviews requested", hasRows: !rows.isEmpty, target: .reviewRequests)
             if rows.isEmpty {
                 Text("No pending review requests.")
                     .font(.subheadline)
@@ -161,8 +185,7 @@ struct CIFailingSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("CI failing").font(.headline)
-                .accessibilityAddTraits(.isHeader)
+            SectionHeader(title: "CI failing", hasRows: !rows.isEmpty, target: .ciFailing)
             if rows.isEmpty {
                 Text("No failing CI.")
                     .font(.subheadline)
@@ -256,14 +279,14 @@ struct RepoFailuresSection: View {
     }
 }
 
-struct ActivitySection: View {
+struct CommentsSection: View {
     @EnvironmentObject var model: AppModel
     let rows: [DropdownRow]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("New comments & reviews").font(.headline)
-                .accessibilityAddTraits(.isHeader)
+            SectionHeader(title: "New comments", hasRows: !rows.isEmpty, target: .comments)
+            // Resume banner anchors on the first activity section per spec.
             if let banner = model.resumeBanner {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "bell.slash")
@@ -281,13 +304,40 @@ struct ActivitySection: View {
                 .cornerRadius(6)
             }
             if rows.isEmpty {
-                Text("No recent activity in the last 24 hours.")
+                Text("No new comments in the last 24 hours.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 4)
             } else {
                 ForEach(rows) { row in
                     RowView(row: row)
+                        .contextMenu {
+                            Button("Dismiss") { model.dismissRow(id: row.id) }
+                        }
+                }
+            }
+        }
+    }
+}
+
+struct ReviewsSection: View {
+    @EnvironmentObject var model: AppModel
+    let rows: [DropdownRow]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SectionHeader(title: "New reviews", hasRows: !rows.isEmpty, target: .reviewSubmissions)
+            if rows.isEmpty {
+                Text("No new reviews in the last 24 hours.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 4)
+            } else {
+                ForEach(rows) { row in
+                    RowView(row: row)
+                        .contextMenu {
+                            Button("Dismiss") { model.dismissRow(id: row.id) }
+                        }
                 }
             }
             Text("Showing activity from the last 24 hours.")

@@ -69,12 +69,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         // Reflect iconState changes (counts, error, setup) into the status-item title.
-        iconObservation = model.$reviewRows
-            .combineLatest(model.$ciFailingRows, model.$activityRows)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _, _ in
-                self?.refreshStatusItemLabel()
-            }
+        iconObservation = Publishers.CombineLatest4(
+            model.$reviewRows,
+            model.$ciFailingRows,
+            model.$commentRows,
+            model.$reviewSubmissionRows
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _, _, _, _ in
+            self?.refreshStatusItemLabel()
+        }
         refreshStatusItemLabel()
 
         model.bootstrap()

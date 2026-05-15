@@ -8,7 +8,8 @@ struct PollOutcome {
     var ciChanges: [CIChangeEvent] = []
     var ciFailingSnapshot: [DropdownRow] = []
     var activityEvents: [ActivityEvent] = []
-    var activitySnapshot: [DropdownRow] = []
+    var commentSnapshot: [DropdownRow] = []
+    var reviewSubmissionSnapshot: [DropdownRow] = []
     var cursorsToSet: [String: Cursor] = [:]
     var cursorsToClear: [String] = []
     /// Per-repo failures (404 / access revoked) keyed by repo slug. These do NOT escalate
@@ -237,7 +238,7 @@ final class Poller {
                                     newestCommentCursor = Cursor(updatedAt: c.created_at, eventID: cid)
                                 }
                             }
-                            outcome.activitySnapshot.append(DropdownRow(
+                            outcome.commentSnapshot.append(DropdownRow(
                                 id: "\(repo.slug)#\(pr.number):comment:\(cid)",
                                 pr: prRef,
                                 summary: "comment by @\(c.user?.login ?? "?")",
@@ -285,7 +286,7 @@ final class Poller {
                                     newestReviewCursor = Cursor(updatedAt: submitted, eventID: rid)
                                 }
                             }
-                            outcome.activitySnapshot.append(DropdownRow(
+                            outcome.reviewSubmissionSnapshot.append(DropdownRow(
                                 id: "\(repo.slug)#\(pr.number):review:\(rid)",
                                 pr: prRef,
                                 summary: "review by @\(r.user?.login ?? "?") (\((r.state ?? "submitted").lowercased()))",
@@ -323,7 +324,8 @@ final class Poller {
 
         outcome.reviewsRequestedSnapshot.sort { $0.sortKey > $1.sortKey }
         outcome.ciFailingSnapshot.sort { $0.sortKey > $1.sortKey }
-        outcome.activitySnapshot.sort { $0.sortKey > $1.sortKey }
+        outcome.commentSnapshot.sort { $0.sortKey > $1.sortKey }
+        outcome.reviewSubmissionSnapshot.sort { $0.sortKey > $1.sortKey }
         outcome.error = firstError
         return outcome
     }

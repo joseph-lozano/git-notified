@@ -8,7 +8,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var setup: SetupStatus
     @Published private(set) var reviewRows: [DropdownRow] = []
     @Published private(set) var ciFailingRows: [DropdownRow] = []
-    @Published private(set) var activityRows: [DropdownRow] = []
+    @Published private(set) var commentRows: [DropdownRow] = []
+    @Published private(set) var reviewSubmissionRows: [DropdownRow] = []
     @Published private(set) var lastCheckedAt: Date?
     @Published private(set) var lastError: GHError?
     @Published private(set) var appCause: AppCause?
@@ -127,7 +128,8 @@ final class AppModel: ObservableObject {
             // Drop snapshot rows for this repo until next tick.
             reviewRows.removeAll { $0.pr.slug == slug }
             ciFailingRows.removeAll { $0.pr.slug == slug }
-            activityRows.removeAll { $0.pr.slug == slug }
+            commentRows.removeAll { $0.pr.slug == slug }
+            reviewSubmissionRows.removeAll { $0.pr.slug == slug }
         }
 
         persist()
@@ -139,7 +141,8 @@ final class AppModel: ObservableObject {
         clearRepoCursors(slug: slug)
         reviewRows.removeAll { $0.pr.slug == slug }
         ciFailingRows.removeAll { $0.pr.slug == slug }
-        activityRows.removeAll { $0.pr.slug == slug }
+        commentRows.removeAll { $0.pr.slug == slug }
+        reviewSubmissionRows.removeAll { $0.pr.slug == slug }
         persist()
         recheckSetup()
     }
@@ -191,9 +194,25 @@ final class AppModel: ObservableObject {
         let stateMutated = !outcome.cursorsToSet.isEmpty || !outcome.cursorsToClear.isEmpty
         if stateMutated { persist() }
 
-        reviewRows = outcome.reviewsRequestedSnapshot
-        ciFailingRows = outcome.ciFailingSnapshot
-        activityRows = outcome.activitySnapshot
+        let dismissed = state.dismissedRowIDs
+        reviewRows = outcome.reviewsRequestedSnapshot.filter { !dismissed.contains($0.id) }
+        ciFailingRows = outcome.ciFailingSnapshot.filter { !dismissed.contains($0.id) }
+        commentRows = outcome.commentSnapshot.filter { !dismissed.contains($0.id) }
+        reviewSubmissionRows = outcome.reviewSubmissionSnapshot.filter { !dismissed.contains($0.id) }
+
+        // Prune dismissed IDs that no longer match any current snapshot row — they've
+        // aged out of the window. Keeps the set bounded.
+        let liveIDs = Set(
+            outcome.reviewsRequestedSnapshot.map(\.id)
+            + outcome.ciFailingSnapshot.map(\.id)
+            + outcome.commentSnapshot.map(\.id)
+            + outcome.reviewSubmissionSnapshot.map(\.id)
+        )
+        let aged = state.dismissedRowIDs.subtracting(liveIDs)
+        if !aged.isEmpty {
+            state.dismissedRowIDs.subtract(aged)
+        }
+
         lastCheckedAt = outcome.lastCheckedAt
         lastError = outcome.error
         repoFailures = outcome.repoFailures
@@ -301,8 +320,40 @@ final class AppModel: ObservableObject {
     var iconState: MenubarIconState {
         if setup.pendingStep != nil { return .setup }
         if inErrorState { return .error }
-        let count = reviewRows.count + ciFailingRows.count + activityRows.count
+        let count = reviewRows.count + ciFailingRows.count + commentRows.count + reviewSubmissionRows.count
         return count == 0 ? .idle : .active(count: count)
+    }
+
+    // MARK: - Clear / dismiss
+
+    enum ClearTarget { case reviewRequests, ciFailing, comments, reviewSubmissions }
+
+    func clear(_ target: ClearTarget) {
+        let rows: [DropdownRow]
+        switch target {
+        case .reviewRequests: rows = reviewRows
+        case .ciFailing: rows = ciFailingRows
+        case .comments: rows = commentRows
+        case .reviewSubmissions: rows = reviewSubmissionRows
+        }
+        guard !rows.isEmpty else { return }
+        for row in rows { state.dismissedRowIDs.insert(row.id) }
+        switch target {
+        case .reviewRequests: reviewRows = []
+        case .ciFailing: ciFailingRows = []
+        case .comments: commentRows = []
+        case .reviewSubmissions: reviewSubmissionRows = []
+        }
+        persist()
+    }
+
+    func dismissRow(id: String) {
+        state.dismissedRowIDs.insert(id)
+        reviewRows.removeAll { $0.id == id }
+        ciFailingRows.removeAll { $0.id == id }
+        commentRows.removeAll { $0.id == id }
+        reviewSubmissionRows.removeAll { $0.id == id }
+        persist()
     }
 
     /// Applies hysteresis to the error icon and derives a structured cause for the banner.
