@@ -11,8 +11,12 @@ struct DropdownView: View {
                     .padding(12)
                 Divider()
             } else {
-                ReviewsRequestedSection(rows: model.reviewRows)
-                    .padding(12)
+                VStack(alignment: .leading, spacing: 14) {
+                    ReviewsRequestedSection(rows: model.reviewRows)
+                    Divider()
+                    CIFailingSection(rows: model.ciFailingRows)
+                }
+                .padding(12)
                 Divider()
             }
 
@@ -86,6 +90,26 @@ struct ReviewsRequestedSection: View {
             Text("Reviews requested").font(.headline)
             if rows.isEmpty {
                 Text("No pending review requests.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 4)
+            } else {
+                ForEach(rows) { row in
+                    RowView(row: row)
+                }
+            }
+        }
+    }
+}
+
+struct CIFailingSection: View {
+    let rows: [DropdownRow]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("CI failing").font(.headline)
+            if rows.isEmpty {
+                Text("No failing CI.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 4)

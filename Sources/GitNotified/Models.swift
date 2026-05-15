@@ -23,6 +23,21 @@ struct WatchedRepo: Codable, Identifiable, Hashable {
 
 enum EventType: String, Codable {
     case reviewRequested = "review_requested"
+    case ciState = "ci_state"
+}
+
+enum CIConclusion: String, Codable {
+    case failing
+    case passing
+    case inProgress = "in_progress"
+    case none
+}
+
+struct CIChangeEvent: Codable, Hashable {
+    var pr: PullRequestRef
+    var newConclusion: CIConclusion
+    var failingCheckName: String?
+    var eventID: String
 }
 
 struct Cursor: Codable, Equatable {

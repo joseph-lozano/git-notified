@@ -7,6 +7,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var state: AppState
     @Published private(set) var setup: SetupStatus
     @Published private(set) var reviewRows: [DropdownRow] = []
+    @Published private(set) var ciFailingRows: [DropdownRow] = []
     @Published private(set) var lastCheckedAt: Date?
     @Published private(set) var lastError: GHError?
     @Published var showingAddRepo: Bool = false
@@ -116,6 +117,7 @@ final class AppModel: ObservableObject {
             persist()
         }
         reviewRows = outcome.reviewsRequestedSnapshot
+        ciFailingRows = outcome.ciFailingSnapshot
         lastCheckedAt = outcome.lastCheckedAt
         lastError = outcome.error
 
@@ -125,6 +127,25 @@ final class AppModel: ObservableObject {
                 title = "Review requested by @\(r)"
             } else {
                 title = "Review requested"
+            }
+            let subtitle = "\(ev.pr.displayRef) — \(ev.pr.title)"
+            notifications.post(
+                title: title,
+                subtitle: subtitle,
+                url: ev.pr.url,
+                dedupeKey: ev.eventID
+            )
+        }
+
+        for ev in outcome.ciChanges {
+            let title: String
+            switch ev.newConclusion {
+            case .failing:
+                title = ev.failingCheckName.map { "CI failed on \($0)" } ?? "CI failing"
+            case .passing:
+                title = "CI passing"
+            default:
+                continue
             }
             let subtitle = "\(ev.pr.displayRef) — \(ev.pr.title)"
             notifications.post(
@@ -148,7 +169,7 @@ final class AppModel: ObservableObject {
     var iconState: MenubarIconState {
         if setup.pendingStep != nil { return .setup }
         if lastError != nil { return .error }
-        let count = reviewRows.count
+        let count = reviewRows.count + ciFailingRows.count
         return count == 0 ? .idle : .active(count: count)
     }
 }
