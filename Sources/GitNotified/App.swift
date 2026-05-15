@@ -1,21 +1,41 @@
 import SwiftUI
 import AppKit
+import Combine
 
 @main
 struct GitNotifiedApp: App {
-    @StateObject private var model: AppModel = {
-        // Single-instance enforcement (D20, F5): if another instance with the same bundle
-        // identifier is already running on this Mac, activate it and exit. This makes the
-        // Login Item + manual launch case safe by default.
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+
+    var body: some Scene {
+        // We host the menubar icon via NSStatusItem in AppDelegate; the SwiftUI Settings
+        // scene here is just a placeholder so the App protocol is satisfied without
+        // creating any visible window.
+        Settings { EmptyView() }
+    }
+}
+
+/// AppKit-backed menubar host. We use NSStatusItem + NSPopover instead of SwiftUI's
+/// `MenuBarExtra` because the latter has rendering gaps on some macOS Tahoe (16+)
+/// builds where the scene creates no visible status item.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    let model: AppModel
+    private var statusItem: NSStatusItem!
+    private var popover: NSPopover!
+    private var cancellableObserver: NSObjectProtocol?
+    private var iconObservation: AnyCancellable?
+
+    override init() {
+        // Single-instance enforcement (D20, F5): bail before constructing state if a
+        // running peer with the same bundle id exists.
         if let bundleID = Bundle.main.bundleIdentifier {
-            let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
                 .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
-            if let other = running.first {
+            if let other = others.first {
                 other.activate(options: [])
                 exit(0)
             }
         }
-
         let gh = GHClient()
         let store: Store
         do {
@@ -23,58 +43,69 @@ struct GitNotifiedApp: App {
         } catch {
             fatalError("Could not initialize Store: \(error.localizedDescription)")
         }
-        return AppModel(store: store, gh: gh)
-    }()
+        self.model = AppModel(store: store, gh: gh)
+        super.init()
+    }
 
-    var body: some Scene {
-        MenuBarExtra {
-            DropdownView()
-                .environmentObject(model)
-                .frame(width: 360)
-                .onAppear { model.bootstrap() }
-        } label: {
-            MenubarLabel(state: model.iconState)
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Build the status item with a guaranteed-visible title — text first so the icon
+        // is unambiguously present even before SF Symbol rendering kicks in.
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = statusItem.button {
+            button.title = "GN"
+            button.image = NSImage(systemSymbolName: "bell", accessibilityDescription: "git-notified")
+            button.imagePosition = .imageLeading
+            button.action = #selector(togglePopover(_:))
+            button.target = self
         }
-        .menuBarExtraStyle(.window)
-    }
-}
 
-struct MenubarLabel: View {
-    let state: MenubarIconState
+        // Popover hosts the SwiftUI DropdownView. .transient closes on outside-click.
+        popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentSize = NSSize(width: 380, height: 480)
+        popover.contentViewController = NSHostingController(
+            rootView: DropdownView().environmentObject(model)
+        )
 
-    var body: some View {
-        content
-            .accessibilityLabel(accessibleLabel)
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch state {
-        case .idle:
-            Image(systemName: "bell")
-        case .active(let count):
-            HStack(spacing: 2) {
-                Image(systemName: "bell.fill")
-                Text("\(count)")
-                    .font(.system(size: 11, weight: .semibold))
+        // Reflect iconState changes (counts, error, setup) into the status-item title.
+        iconObservation = model.$reviewRows
+            .combineLatest(model.$ciFailingRows, model.$activityRows)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _, _ in
+                self?.refreshStatusItemLabel()
             }
-        case .setup:
-            // Neutral, additive overlay — distinct from the reactive error icon.
-            Image(systemName: "bell.badge.plus")
-        case .error:
-            // Reactive, attention-grabbing overlay — distinct from the additive setup icon.
-            Image(systemName: "bell.badge.fill")
-                .foregroundStyle(.red)
+        refreshStatusItemLabel()
+
+        model.bootstrap()
+    }
+
+    @objc private func togglePopover(_ sender: Any?) {
+        guard let button = statusItem.button else { return }
+        if popover.isShown {
+            popover.performClose(sender)
+        } else {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 
-    /// State-inclusive accessible labels per spec's Accessibility section.
-    private var accessibleLabel: String {
-        switch state {
-        case .idle: return "git-notified, no outstanding items"
-        case .active(let n): return "git-notified, \(n) outstanding \(n == 1 ? "item" : "items")"
-        case .setup: return "git-notified, setup required"
-        case .error: return "git-notified, error"
+    private func refreshStatusItemLabel() {
+        guard let button = statusItem.button else { return }
+        switch model.iconState {
+        case .idle:
+            button.title = "GN"
+            button.image = NSImage(systemSymbolName: "bell", accessibilityDescription: "git-notified, no outstanding items")
+        case .active(let n):
+            button.title = "GN \(n)"
+            button.image = NSImage(systemSymbolName: "bell.fill", accessibilityDescription: "git-notified, \(n) outstanding items")
+        case .setup:
+            button.title = "GN ⚙"
+            button.image = NSImage(systemSymbolName: "bell.badge.plus", accessibilityDescription: "git-notified, setup required")
+        case .error:
+            button.title = "GN !"
+            button.image = NSImage(systemSymbolName: "bell.badge.fill", accessibilityDescription: "git-notified, error")
         }
     }
 }
+
