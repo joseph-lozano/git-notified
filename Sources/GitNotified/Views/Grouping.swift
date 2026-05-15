@@ -1,12 +1,7 @@
-// PROTOTYPE — throwaway code. Delete this file (and the Prototype/ directory) once
-// the dropdown layout question is answered and the winning variant is folded into
-// DropdownView proper.
-//
-// Question: how should the dropdown organize rows when grouped by
-//           repo → PR → review-requests / CI / comments / reviews?
-
 import Foundation
 
+/// Per-PR aggregation of events used by the dropdown's repo-grouped layout.
+/// PRs are ordered by newest activity within each repo; repos by slug.
 struct PRBucket: Identifiable, Hashable {
     let pr: PullRequestRef
     var reviewRequests: [DropdownRow] = []
@@ -16,7 +11,6 @@ struct PRBucket: Identifiable, Hashable {
 
     var id: String { pr.displayRef }
     var totalCount: Int { reviewRequests.count + ciRows.count + commentRows.count + reviewRows.count }
-    /// Most-recent activity across this PR's buckets — used to sort PRs newest-first.
     var newestActivity: Date {
         ([reviewRequests, ciRows, commentRows, reviewRows].flatMap { $0 })
             .map(\.sortKey).max() ?? .distantPast
@@ -32,9 +26,8 @@ struct RepoBucket: Identifiable, Hashable {
 }
 
 @MainActor
-enum PrototypeGrouping {
+enum DropdownGrouping {
     /// Folds the four flat snapshot arrays into a repo → PR → events tree.
-    /// PRs are sorted by newest activity within each repo; repos are sorted by slug.
     static func group(model: AppModel) -> [RepoBucket] {
         var byRepo: [String: [String: PRBucket]] = [:]
         for r in model.reviewRows { add(r, into: &byRepo, keyPath: \.reviewRequests) }
@@ -60,5 +53,46 @@ enum PrototypeGrouping {
         bucket[keyPath: keyPath].append(row)
         prDict[prKey] = bucket
         byRepo[repoSlug] = prDict
+    }
+}
+
+/// A single event row flattened for the dropdown's repo-grouped layout. Carries enough
+/// context to render PR title + reason + age without rebuilding the bucket tree at render.
+struct EventRow: Identifiable, Hashable {
+    enum Kind: String {
+        case reviewRequested, ciFailing, comment, review
+        var glyph: String {
+            switch self {
+            case .reviewRequested: return "person.crop.circle.badge.questionmark"
+            case .ciFailing: return "xmark.octagon.fill"
+            case .comment: return "text.bubble"
+            case .review: return "checkmark.message"
+            }
+        }
+    }
+    let id: String
+    let kind: Kind
+    let pr: PullRequestRef
+    let reason: String
+    let age: String
+    let url: String
+    let sortKey: Date
+
+    static func from(_ row: DropdownRow, kind: Kind, reasonPrefix: String? = nil) -> EventRow {
+        let reason: String
+        if let p = reasonPrefix {
+            reason = "#\(row.pr.number) · \(p) · \(row.summary)"
+        } else {
+            reason = "#\(row.pr.number) · \(row.summary)"
+        }
+        return EventRow(
+            id: row.id,
+            kind: kind,
+            pr: row.pr,
+            reason: reason,
+            age: row.age,
+            url: row.url,
+            sortKey: row.sortKey
+        )
     }
 }

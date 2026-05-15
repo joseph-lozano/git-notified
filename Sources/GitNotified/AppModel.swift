@@ -326,24 +326,18 @@ final class AppModel: ObservableObject {
 
     // MARK: - Clear / dismiss
 
-    enum ClearTarget { case reviewRequests, ciFailing, comments, reviewSubmissions }
-
-    func clear(_ target: ClearTarget) {
-        let rows: [DropdownRow]
-        switch target {
-        case .reviewRequests: rows = reviewRows
-        case .ciFailing: rows = ciFailingRows
-        case .comments: rows = commentRows
-        case .reviewSubmissions: rows = reviewSubmissionRows
-        }
+    /// Dismisses every currently-visible row for one repo. Adds the row IDs to the
+    /// persisted dismissed set so they stay gone until they age out or the user
+    /// hits "Restore dismissed" in the footer.
+    func clearRepo(slug: String) {
+        let rows = (reviewRows + ciFailingRows + commentRows + reviewSubmissionRows)
+            .filter { $0.pr.slug == slug }
         guard !rows.isEmpty else { return }
         for row in rows { state.dismissedRowIDs.insert(row.id) }
-        switch target {
-        case .reviewRequests: reviewRows = []
-        case .ciFailing: ciFailingRows = []
-        case .comments: commentRows = []
-        case .reviewSubmissions: reviewSubmissionRows = []
-        }
+        reviewRows.removeAll { $0.pr.slug == slug }
+        ciFailingRows.removeAll { $0.pr.slug == slug }
+        commentRows.removeAll { $0.pr.slug == slug }
+        reviewSubmissionRows.removeAll { $0.pr.slug == slug }
         persist()
     }
 

@@ -5,12 +5,6 @@ struct DropdownView: View {
     @EnvironmentObject var model: AppModel
     @State private var showingManage: Bool = false
 
-    // PROTOTYPE — remove with the rest of Prototype/ once a winner is picked.
-    @AppStorage("prototype-dropdown-variant") private var rawVariant: String = PrototypeVariant.original.rawValue
-    private var variant: PrototypeVariant {
-        get { PrototypeVariant(rawValue: rawVariant) ?? .original }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if showingManage {
@@ -37,36 +31,20 @@ struct DropdownView: View {
                 .padding(12)
             Divider()
         } else {
-            VStack(alignment: .leading, spacing: 14) {
-                // PROTOTYPE switcher — top of dropdown, clearly labeled. Delete with Prototype/.
-                PrototypeSwitcher(variant: Binding(
-                    get: { variant },
-                    set: { rawVariant = $0.rawValue }
-                ))
-
+            VStack(alignment: .leading, spacing: 0) {
+                if let banner = model.resumeBanner {
+                    ResumeBannerView(banner: banner)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                }
                 if !model.repoFailures.isEmpty {
                     RepoFailuresSection(failures: Array(model.repoFailures.values))
+                        .padding(12)
                     Divider()
                 }
-
-                switch variant {
-                case .original:
-                    ReviewsRequestedSection(rows: model.reviewRows)
-                    Divider()
-                    CIFailingSection(rows: model.ciFailingRows)
-                    Divider()
-                    CommentsSection(rows: model.commentRows)
-                    Divider()
-                    ReviewsSection(rows: model.reviewSubmissionRows)
-                case .a:
-                    PrototypeVariantA()
-                case .b:
-                    PrototypeVariantB()
-                case .c:
-                    PrototypeVariantC()
-                }
+                RepoGroupedListView()
+                    .padding(.vertical, 4)
             }
-            .padding(12)
             Divider()
         }
 
@@ -120,6 +98,162 @@ struct DropdownView: View {
     }
 }
 
+// MARK: - Repo-grouped flat-events layout (V3, github.com/notifications-style)
+
+struct RepoGroupedListView: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        let buckets = DropdownGrouping.group(model: model)
+        if buckets.isEmpty {
+            Text("No outstanding items.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(buckets) { repo in
+                    RepoGroupView(repo: repo)
+                }
+                Text("Showing activity from the last 24 hours.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 6)
+                    .padding(.bottom, 4)
+            }
+        }
+    }
+}
+
+struct RepoGroupView: View {
+    @EnvironmentObject var model: AppModel
+    let repo: RepoBucket
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Text(repo.slug)
+                    .font(.system(size: 13, weight: .semibold))
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                Text("\(repo.totalCount) item\(repo.totalCount == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Button {
+                    model.clearRepo(slug: repo.slug)
+                } label: {
+                    Text("Clear").font(.caption2)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Clear \(repo.slug)")
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+
+            ForEach(flatten(repo)) { event in
+                EventCardView(event: event)
+            }
+        }
+    }
+
+    /// Flattens the bucket's four event-type arrays into a single list ordered newest-first.
+    private func flatten(_ repo: RepoBucket) -> [EventRow] {
+        var out: [EventRow] = []
+        for pr in repo.prs {
+            out.append(contentsOf: pr.reviewRequests.map { EventRow.from($0, kind: .reviewRequested, reasonPrefix: "review requested") })
+            out.append(contentsOf: pr.ciRows.map { EventRow.from($0, kind: .ciFailing, reasonPrefix: "CI failing") })
+            out.append(contentsOf: pr.commentRows.map { EventRow.from($0, kind: .comment) })
+            out.append(contentsOf: pr.reviewRows.map { EventRow.from($0, kind: .review) })
+        }
+        return out.sorted { $0.sortKey > $1.sortKey }
+    }
+}
+
+struct EventCardView: View {
+    @EnvironmentObject var model: AppModel
+    let event: EventRow
+
+    var body: some View {
+        Button {
+            if let url = URL(string: event.url) { NSWorkspace.shared.open(url) }
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: event.kind.glyph)
+                    .font(.system(size: 12))
+                    .foregroundColor(iconColor)
+                    .frame(width: 14, alignment: .center)
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(event.pr.title)
+                        .font(.system(size: 13))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .foregroundColor(.primary)
+                    Text(event.reason)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 6)
+                Text(event.age)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 2)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .top) { Divider().opacity(0.5) }
+        .contextMenu {
+            Button("Open in browser") {
+                if let url = URL(string: event.url) { NSWorkspace.shared.open(url) }
+            }
+            Button("Dismiss") { model.dismissRow(id: event.id) }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(event.pr.displayRef), \(event.pr.title), \(event.reason), \(event.age)")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var iconColor: Color {
+        switch event.kind {
+        case .reviewRequested: return .blue
+        case .ciFailing: return .red
+        case .comment: return .gray
+        case .review: return .green
+        }
+    }
+}
+
+// MARK: - Resume banner, repo failures, status banner, setup, footer
+
+struct ResumeBannerView: View {
+    @EnvironmentObject var model: AppModel
+    let banner: ResumeBanner
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "bell.slash")
+            Text(banner.text).font(.caption)
+            Spacer()
+            Button {
+                model.resumeBanner = nil
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(8)
+        .background(Color.accentColor.opacity(0.12))
+        .cornerRadius(6)
+    }
+}
+
 struct SetupChecklistView: View {
     let setup: SetupStatus
 
@@ -155,69 +289,6 @@ struct SetupChecklistView: View {
                 }
             }
             Spacer()
-        }
-    }
-}
-
-/// Reusable section header with title and an optional Clear button. The Clear button is
-/// shown only when there are rows to clear and dispatches to AppModel.clear(target:).
-struct SectionHeader: View {
-    @EnvironmentObject var model: AppModel
-    let title: String
-    let hasRows: Bool
-    let target: AppModel.ClearTarget?
-
-    var body: some View {
-        HStack {
-            Text(title).font(.headline)
-                .accessibilityAddTraits(.isHeader)
-            Spacer()
-            if hasRows, let target {
-                Button("Clear") { model.clear(target) }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .accessibilityLabel("Clear \(title)")
-            }
-        }
-    }
-}
-
-struct ReviewsRequestedSection: View {
-    let rows: [DropdownRow]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: "Reviews requested", hasRows: !rows.isEmpty, target: .reviewRequests)
-            if rows.isEmpty {
-                Text("No pending review requests.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 4)
-            } else {
-                ForEach(rows) { row in
-                    RowView(row: row)
-                }
-            }
-        }
-    }
-}
-
-struct CIFailingSection: View {
-    let rows: [DropdownRow]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: "CI failing", hasRows: !rows.isEmpty, target: .ciFailing)
-            if rows.isEmpty {
-                Text("No failing CI.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 4)
-            } else {
-                ForEach(rows) { row in
-                    RowView(row: row)
-                }
-            }
         }
     }
 }
@@ -298,107 +369,6 @@ struct RepoFailuresSection: View {
                 .padding(.vertical, 2)
             }
         }
-    }
-}
-
-struct CommentsSection: View {
-    @EnvironmentObject var model: AppModel
-    let rows: [DropdownRow]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: "New comments", hasRows: !rows.isEmpty, target: .comments)
-            // Resume banner anchors on the first activity section per spec.
-            if let banner = model.resumeBanner {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "bell.slash")
-                    Text(banner.text).font(.caption)
-                    Spacer()
-                    Button {
-                        model.resumeBanner = nil
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(8)
-                .background(Color.accentColor.opacity(0.12))
-                .cornerRadius(6)
-            }
-            if rows.isEmpty {
-                Text("No new comments in the last 24 hours.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 4)
-            } else {
-                ForEach(rows) { row in
-                    RowView(row: row)
-                        .contextMenu {
-                            Button("Dismiss") { model.dismissRow(id: row.id) }
-                        }
-                }
-            }
-        }
-    }
-}
-
-struct ReviewsSection: View {
-    @EnvironmentObject var model: AppModel
-    let rows: [DropdownRow]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: "New reviews", hasRows: !rows.isEmpty, target: .reviewSubmissions)
-            if rows.isEmpty {
-                Text("No new reviews in the last 24 hours.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 4)
-            } else {
-                ForEach(rows) { row in
-                    RowView(row: row)
-                        .contextMenu {
-                            Button("Dismiss") { model.dismissRow(id: row.id) }
-                        }
-                }
-            }
-            Text("Showing activity from the last 24 hours.")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .padding(.top, 2)
-        }
-    }
-}
-
-struct RowView: View {
-    let row: DropdownRow
-
-    var body: some View {
-        Button {
-            if let url = URL(string: row.url) {
-                NSWorkspace.shared.open(url)
-            }
-        } label: {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "arrow.up.right.square")
-                    .foregroundColor(.accentColor)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(row.pr.displayRef) — \(row.pr.title)")
-                        .font(.subheadline)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    Text("\(row.summary) · \(row.age)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-            }
-        }
-        .buttonStyle(.plain)
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(row.pr.displayRef), \(row.pr.title), \(row.summary), \(row.age)")
-        .accessibilityAddTraits(.isButton)
     }
 }
 

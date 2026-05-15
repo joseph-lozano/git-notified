@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>git-notified — dropdown layout mockup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #1c1c1e;
+    --surface: #2c2c2e;
+    --surface-2: #3a3a3c;
+    --hairline: rgba(255,255,255,0.08);
+    --text: #ffffff;
+    --text-secondary: rgba(255,255,255,0.62);
+    --text-tertiary: rgba(255,255,255,0.42);
+    --accent: #0a84ff;
+    --red: #ff453a;
+    --green: #32d74b;
+    --orange: #ff9f0a;
+    --yellow: #ffd60a;
+    --blue: #0a84ff;
+    --gray: #8e8e93;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+    background: #0e0e10;
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    max-width: 1700px;
+    margin: 0 auto;
+    padding: 32px 24px;
+  }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px 0; }
+  .lead { color: var(--text-secondary); font-size: 13px; margin-bottom: 24px; }
+
+  .switcher {
+    position: sticky; top: 0; z-index: 10;
+    background: #0e0e10;
+    padding: 12px 0 20px 0;
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .switcher button {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .switcher button.active {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .stage {
+    display: flex; gap: 24px; align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .frame {
+    width: 380px;
+    background: var(--surface);
+    border-radius: 10px;
+    border: 1px solid var(--hairline);
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+  }
+  .frame-title {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 4px 8px;
+    margin-bottom: 6px;
+  }
+
+  .row-actions {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--hairline);
+    font-size: 12px;
+  }
+  .row-actions .meta { color: var(--text-tertiary); }
+  .row-actions .grow { flex: 1; }
+  .link { color: var(--accent); cursor: pointer; }
+
+  /* shared event icon */
+  .ev-icon {
+    width: 14px; height: 14px;
+    border-radius: 3px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .ev-icon.review { background: rgba(10,132,255,0.18); color: #6ab0ff; }
+  .ev-icon.ci { background: rgba(255,69,58,0.18); color: #ff7d75; }
+  .ev-icon.comment { background: rgba(142,142,147,0.18); color: var(--gray); }
+  .ev-icon.submitted-review { background: rgba(50,215,75,0.18); color: #6ee385; }
+
+  /* ===== V1 Linear lean ===== */
+  .v1 .content { padding: 8px 4px; }
+  .v1 .repo-header {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+    padding: 12px 14px 6px 14px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .v1 .repo-header .count {
+    margin-left: auto;
+    background: var(--surface-2);
+    color: var(--text-secondary);
+    padding: 1px 6px; border-radius: 8px;
+    font-size: 10px;
+  }
+  .v1 .pr {
+    padding: 4px 14px 10px 14px;
+  }
+  .v1 .pr-title {
+    font-size: 13px;
+    line-height: 1.35;
+    cursor: pointer;
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .v1 .pr-title .num { color: var(--text-tertiary); font-weight: 500; }
+  .v1 .pr-title .title { color: var(--text); }
+  .v1 .pr-title:hover .title { color: var(--accent); }
+  .v1 .events { margin: 4px 0 0 12px; }
+  .v1 .ev {
+    display: grid;
+    grid-template-columns: 14px 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 2px 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .v1 .ev:hover { color: var(--text); }
+  .v1 .ev .age { color: var(--text-tertiary); font-size: 11px; }
+
+  /* ===== V2 Things calm ===== */
+  .v2 .content { padding: 6px 0; }
+  .v2 .repo {
+    padding: 14px 18px 6px 18px;
+  }
+  .v2 .repo-header {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    font-weight: 500;
+    margin-bottom: 10px;
+  }
+  .v2 .pr { margin-bottom: 14px; }
+  .v2 .pr-title {
+    font-size: 14px; font-weight: 500;
+    cursor: pointer;
+    line-height: 1.35;
+  }
+  .v2 .pr-meta {
+    font-size: 11px; color: var(--text-tertiary);
+    margin-top: 1px;
+  }
+  .v2 .events {
+    margin-top: 8px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .v2 .ev {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .v2 .ev .age { margin-left: auto; color: var(--text-tertiary); font-size: 11px; }
+  .v2 .more {
+    font-size: 11px; color: var(--text-tertiary);
+    cursor: pointer; padding: 4px 0 0 22px;
+  }
+  .v2 .more:hover { color: var(--accent); }
+
+  /* ===== V3 GitHub-style ===== */
+  .v3 .content { padding: 4px 0; }
+  .v3 .repo {
+    padding-bottom: 4px;
+  }
+  .v3 .repo-header {
+    font-size: 13px; font-weight: 600;
+    padding: 12px 14px 6px 14px;
+    color: var(--text);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .v3 .repo-header .count {
+    margin-left: auto; font-size: 11px; color: var(--text-tertiary);
+    font-weight: 400;
+  }
+  .v3 .ev-card {
+    display: grid;
+    grid-template-columns: 14px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 14px;
+    cursor: pointer;
+    border-top: 1px solid var(--hairline);
+  }
+  .v3 .ev-card:hover { background: rgba(255,255,255,0.04); }
+  .v3 .ev-card .title { font-size: 13px; line-height: 1.3; }
+  .v3 .ev-card .reason {
+    display: block; font-size: 11px; color: var(--text-tertiary);
+    margin-top: 2px;
+  }
+  .v3 .ev-card .age { font-size: 11px; color: var(--text-tertiary); }
+
+  /* ===== V4 Slack roll-up ===== */
+  .v4 .content { padding: 4px 0; }
+  .v4 .repo {
+    padding: 10px 14px;
+  }
+  .v4 .repo-header {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    font-weight: 600;
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+  }
+  .v4 .repo-header .count {
+    margin-left: auto;
+    background: var(--accent);
+    color: white;
+    padding: 1px 7px; border-radius: 10px;
+    font-size: 10px; font-weight: 600;
+  }
+  .v4 .pr {
+    background: var(--surface-2);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    cursor: pointer;
+  }
+  .v4 .pr-title {
+    font-size: 13px;
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .v4 .pr-title .num { color: var(--text-tertiary); }
+  .v4 .pr-summary {
+    margin-top: 4px;
+    font-size: 11px; color: var(--text-tertiary);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .v4 .pr-summary .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(255,255,255,0.06);
+    padding: 1px 6px; border-radius: 8px;
+  }
+  .v4 .pr-summary .chip.ci { color: #ff7d75; background: rgba(255,69,58,0.15); }
+  .v4 .pr.expanded .events { display: block; }
+  .v4 .events {
+    display: none;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--hairline);
+  }
+  .v4 .ev {
+    display: grid;
+    grid-template-columns: 14px 1fr auto;
+    gap: 8px; align-items: center;
+    font-size: 12px; color: var(--text-secondary);
+    padding: 3px 0;
+  }
+  .v4 .ev .age { color: var(--text-tertiary); font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>git-notified — dropdown layout mockup</h1>
+  <div class="lead">
+    Four variants applying the research synthesis. Each frame is 380 px (real menubar popover width). Mock data: 3 repos, mix of review-requests, CI, comments, reviews.
+    <br />Click a button to switch — or scroll to compare side-by-side. Try expanding PRs in V4.
+  </div>
+
+  <div class="switcher" id="switcher">
+    <button data-target="single" class="active">Single (focus mode)</button>
+    <button data-target="all">Show all (compare)</button>
+  </div>
+
+  <div id="single-stage" class="stage" style="display:none;"></div>
+
+  <div id="all-stage" class="stage">
+    <!-- V1 Linear lean -->
+    <div>
+      <div class="frame-title">V1 — Linear lean</div>
+      <div class="frame v1" id="v1"></div>
+      <p style="width:380px; color: var(--text-tertiary); font-size: 11px; line-height: 1.5; padding: 8px 4px;">
+        ALL-CAPS muted repo headers, PR title primary, indented events with small type-icons.
+        Pure spacing hierarchy, no borders. Closest to your Variant A request — less dense via typography, not less info.
+      </p>
+    </div>
+
+    <!-- V2 Things calm -->
+    <div>
+      <div class="frame-title">V2 — Things calm</div>
+      <div class="frame v2" id="v2"></div>
+      <p style="width:380px; color: var(--text-tertiary); font-size: 11px; line-height: 1.5; padding: 8px 4px;">
+        Maximum whitespace. PR title is the hero, max 2 events shown with "+N more" affordance.
+        Most breathable; trades some scan-completeness for calm.
+      </p>
+    </div>
+
+    <!-- V3 GitHub-style -->
+    <div>
+      <div class="frame-title">V3 — GitHub Notifications style</div>
+      <div class="frame v3" id="v3"></div>
+      <p style="width:380px; color: var(--text-tertiary); font-size: 11px; line-height: 1.5; padding: 8px 4px;">
+        Every event is a row under its repo header — no PR-level grouping in the visual sense, just sorting.
+        Hairlines between rows. Familiar from github.com/notifications.
+      </p>
+    </div>
+
+    <!-- V4 Slack roll-up -->
+    <div>
+      <div class="frame-title">V4 — Slack roll-up</div>
+      <div class="frame v4" id="v4"></div>
+      <p style="width:380px; color: var(--text-tertiary); font-size: 11px; line-height: 1.5; padding: 8px 4px;">
+        PR card shows a one-line summary (chips). Click to expand events inline.
+        Default-collapsed. Most compact baseline, deepest detail on demand.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- mock data ----
+const data = [
+  {
+    slug: 'acme/api',
+    prs: [
+      {
+        num: 421, title: 'Add OAuth login flow with PKCE',
+        events: [
+          { kind: 'review', label: 'review requested by @alice', age: '4m ago' },
+          { kind: 'ci', label: 'CI failing on integration-tests', age: '12m ago' },
+          { kind: 'comment', label: 'comment by @bob', age: '1h ago' },
+        ],
+      },
+      {
+        num: 418, title: 'Refactor session middleware',
+        events: [
+          { kind: 'submitted-review', label: 'review by @carol (approved)', age: '2h ago' },
+          { kind: 'comment', label: 'comment by @david', age: '3h ago' },
+        ],
+      },
+    ],
+  },
+  {
+    slug: 'acme/web',
+    prs: [
+      {
+        num: 1042, title: 'Migrate dashboard to Server Components',
+        events: [
+          { kind: 'ci', label: 'CI failing on type-check', age: '20m ago' },
+          { kind: 'comment', label: 'comment by @eve', age: '45m ago' },
+          { kind: 'comment', label: 'comment by @frank', age: '55m ago' },
+          { kind: 'comment', label: 'comment by @grace', age: '1h ago' },
+        ],
+      },
+    ],
+  },
+  {
+    slug: 'joseph/tools',
+    prs: [
+      {
+        num: 17, title: 'Drop Python 3.9 support',
+        events: [
+          { kind: 'review', label: 'review requested by @hank', age: '8h ago' },
+        ],
+      },
+    ],
+  },
+];
+
+const evIcon = {
+  review: 'R',
+  ci: '!',
+  comment: 'c',
+  'submitted-review': '✓',
+};
+const evIconTitle = {
+  review: 'Review requested',
+  ci: 'CI failing',
+  comment: 'Comment',
+  'submitted-review': 'Review submitted',
+};
+
+function totalCount(repo) {
+  return repo.prs.reduce((s, p) => s + p.events.length, 0);
+}
+
+// ---- V1 Linear lean ----
+function renderV1() {
+  const root = document.getElementById('v1');
+  const content = document.createElement('div'); content.className = 'content';
+  data.forEach(repo => {
+    const h = document.createElement('div'); h.className = 'repo-header';
+    h.innerHTML = `<span>${repo.slug}</span><span class="count">${totalCount(repo)}</span>`;
+    content.appendChild(h);
+    repo.prs.forEach(pr => {
+      const wrap = document.createElement('div'); wrap.className = 'pr';
+      wrap.innerHTML = `
+        <div class="pr-title"><span class="num">#${pr.num}</span><span class="title">${pr.title}</span></div>
+        <div class="events">${pr.events.map(e => `
+          <div class="ev">
+            <span class="ev-icon ${e.kind}" title="${evIconTitle[e.kind]}">${evIcon[e.kind]}</span>
+            <span>${e.label}</span>
+            <span class="age">${e.age}</span>
+          </div>
+        `).join('')}</div>`;
+      content.appendChild(wrap);
+    });
+  });
+  root.appendChild(content);
+  appendActionRow(root);
+}
+
+// ---- V2 Things calm ----
+function renderV2() {
+  const root = document.getElementById('v2');
+  const content = document.createElement('div'); content.className = 'content';
+  data.forEach(repo => {
+    const wrap = document.createElement('div'); wrap.className = 'repo';
+    wrap.innerHTML = `<div class="repo-header">${repo.slug}</div>`;
+    repo.prs.forEach(pr => {
+      const evCount = pr.events.length;
+      const shown = pr.events.slice(0, 2);
+      const more = evCount > 2 ? evCount - 2 : 0;
+      const prDiv = document.createElement('div'); prDiv.className = 'pr';
+      prDiv.innerHTML = `
+        <div class="pr-title">#${pr.num} — ${pr.title}</div>
+        <div class="events">${shown.map(e => `
+          <div class="ev">
+            <span class="ev-icon ${e.kind}" title="${evIconTitle[e.kind]}">${evIcon[e.kind]}</span>
+            <span>${e.label}</span>
+            <span class="age">${e.age}</span>
+          </div>
+        `).join('')}${more ? `<div class="more">+${more} more</div>` : ''}</div>`;
+      wrap.appendChild(prDiv);
+    });
+    content.appendChild(wrap);
+  });
+  root.appendChild(content);
+  appendActionRow(root);
+}
+
+// ---- V3 GitHub style ----
+function renderV3() {
+  const root = document.getElementById('v3');
+  const content = document.createElement('div'); content.className = 'content';
+  data.forEach(repo => {
+    const r = document.createElement('div'); r.className = 'repo';
+    r.innerHTML = `<div class="repo-header">${repo.slug}<span class="count">${totalCount(repo)} items</span></div>`;
+    repo.prs.forEach(pr => {
+      pr.events.forEach(e => {
+        const card = document.createElement('div'); card.className = 'ev-card';
+        card.innerHTML = `
+          <span class="ev-icon ${e.kind}" title="${evIconTitle[e.kind]}">${evIcon[e.kind]}</span>
+          <div>
+            <div class="title">${pr.title}</div>
+            <span class="reason">#${pr.num} · ${e.label}</span>
+          </div>
+          <span class="age">${e.age}</span>`;
+        r.appendChild(card);
+      });
+    });
+    content.appendChild(r);
+  });
+  root.appendChild(content);
+  appendActionRow(root);
+}
+
+// ---- V4 Slack roll-up ----
+function renderV4() {
+  const root = document.getElementById('v4');
+  const content = document.createElement('div'); content.className = 'content';
+  data.forEach(repo => {
+    const r = document.createElement('div'); r.className = 'repo';
+    r.innerHTML = `<div class="repo-header">${repo.slug}<span class="count">${totalCount(repo)}</span></div>`;
+    repo.prs.forEach(pr => {
+      const counts = pr.events.reduce((acc, e) => { acc[e.kind] = (acc[e.kind] || 0) + 1; return acc; }, {});
+      const chips = [];
+      if (counts['review']) chips.push(`<span class="chip">R · ${counts['review']}</span>`);
+      if (counts['ci']) chips.push(`<span class="chip ci">CI failing</span>`);
+      if (counts['comment']) chips.push(`<span class="chip">${counts['comment']} comment${counts['comment']>1?'s':''}</span>`);
+      if (counts['submitted-review']) chips.push(`<span class="chip">${counts['submitted-review']} review${counts['submitted-review']>1?'s':''}</span>`);
+      const prDiv = document.createElement('div'); prDiv.className = 'pr';
+      prDiv.innerHTML = `
+        <div class="pr-title"><span class="num">#${pr.num}</span> ${pr.title}</div>
+        <div class="pr-summary">${chips.join('')}</div>
+        <div class="events">${pr.events.map(e => `
+          <div class="ev">
+            <span class="ev-icon ${e.kind}" title="${evIconTitle[e.kind]}">${evIcon[e.kind]}</span>
+            <span>${e.label}</span>
+            <span class="age">${e.age}</span>
+          </div>
+        `).join('')}</div>`;
+      prDiv.addEventListener('click', () => prDiv.classList.toggle('expanded'));
+      r.appendChild(prDiv);
+    });
+    content.appendChild(r);
+  });
+  root.appendChild(content);
+  appendActionRow(root);
+}
+
+function appendActionRow(root) {
+  const r = document.createElement('div'); r.className = 'row-actions';
+  r.innerHTML = `<span class="link">Add repository…</span><span class="grow"></span><span class="meta">last checked 1m ago</span>`;
+  root.appendChild(r);
+}
+
+renderV1(); renderV2(); renderV3(); renderV4();
+
+// switcher
+const switcher = document.getElementById('switcher');
+const singleStage = document.getElementById('single-stage');
+const allStage = document.getElementById('all-stage');
+let focusIdx = 0;
+const focusButtons = ['V1 — Linear lean', 'V2 — Things calm', 'V3 — GitHub', 'V4 — Slack roll-up'];
+function renderFocus() {
+  singleStage.innerHTML = '';
+  const variants = document.querySelectorAll('#all-stage > div');
+  const clone = variants[focusIdx].cloneNode(true);
+  singleStage.appendChild(clone);
+}
+switcher.addEventListener('click', (e) => {
+  if (e.target.dataset.target === 'single') {
+    [...switcher.children].forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    // Build single-variant view with sub-switcher
+    singleStage.innerHTML = '';
+    const subSwitcher = document.createElement('div');
+    subSwitcher.style.display = 'flex'; subSwitcher.style.gap = '6px'; subSwitcher.style.marginBottom = '12px';
+    subSwitcher.style.width = '100%';
+    focusButtons.forEach((label, i) => {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.style.cssText = `background: ${i===focusIdx?'var(--accent)':'var(--surface)'}; color: var(--text); border: 1px solid var(--hairline); border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; font-family: inherit;`;
+      btn.addEventListener('click', () => { focusIdx = i; switcher.querySelector('[data-target=single]').click(); });
+      subSwitcher.appendChild(btn);
+    });
+    singleStage.appendChild(subSwitcher);
+    const variantCopy = document.querySelectorAll('#all-stage > div')[focusIdx].cloneNode(true);
+    singleStage.appendChild(variantCopy);
+    singleStage.style.display = 'flex';
+    allStage.style.display = 'none';
+  } else if (e.target.dataset.target === 'all') {
+    [...switcher.children].forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    singleStage.style.display = 'none';
+    allStage.style.display = 'flex';
+  }
+});
+</script>
+</body>
+</html>
