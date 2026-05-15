@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+build/
+*.xcodeproj/
+DerivedData/
+git-notified.app/
+.DS_Store
