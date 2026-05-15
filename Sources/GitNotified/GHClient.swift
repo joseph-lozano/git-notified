@@ -109,6 +109,25 @@ struct GHPRWithCI: Decodable, Hashable {
 }
 
 
+struct GHIssueComment: Decodable, Hashable {
+    let id: Int
+    let user: GHUserRef?
+    let created_at: Date
+    let html_url: String
+    let body: String?
+
+    struct GHUserRef: Decodable, Hashable { let login: String? }
+}
+
+struct GHReview: Decodable, Hashable {
+    let id: Int
+    let user: GHIssueComment.GHUserRef?
+    let state: String?           // APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED, PENDING
+    let submitted_at: Date?
+    let html_url: String
+    let body: String?
+}
+
 /// Wraps the `gh` CLI. All calls are synchronous; callers must dispatch off the main thread.
 final class GHClient {
     private let executableSearchPaths = [
@@ -177,6 +196,36 @@ final class GHClient {
             return try jsonDecoder().decode([GHPRWithCI].self, from: Data(result.stdout.utf8))
         } catch {
             throw GHError.parseError(error.localizedDescription)
+        }
+    }
+
+    /// Issue comments on a PR (PR comments are issue comments in GitHub's data model).
+    /// Returns all pages by following gh's --paginate behavior.
+    func listPRIssueComments(owner: String, name: String, number: Int, since: Date) throws -> [GHIssueComment] {
+        let sinceISO = ISO8601DateFormatter().string(from: since)
+        let result = try run([
+            "api", "--paginate",
+            "repos/\(owner)/\(name)/issues/\(number)/comments?since=\(sinceISO)&per_page=100",
+        ])
+        guard result.exitCode == 0 else { throw classify(result) }
+        do {
+            return try jsonDecoder().decode([GHIssueComment].self, from: Data(result.stdout.utf8))
+        } catch {
+            throw GHError.parseError("comments: \(error.localizedDescription)")
+        }
+    }
+
+    /// Reviews on a PR. The REST endpoint does not accept `since`; we fetch and filter client-side.
+    func listPRReviews(owner: String, name: String, number: Int) throws -> [GHReview] {
+        let result = try run([
+            "api", "--paginate",
+            "repos/\(owner)/\(name)/pulls/\(number)/reviews?per_page=100",
+        ])
+        guard result.exitCode == 0 else { throw classify(result) }
+        do {
+            return try jsonDecoder().decode([GHReview].self, from: Data(result.stdout.utf8))
+        } catch {
+            throw GHError.parseError("reviews: \(error.localizedDescription)")
         }
     }
 

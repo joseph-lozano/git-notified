@@ -15,6 +15,8 @@ struct DropdownView: View {
                     ReviewsRequestedSection(rows: model.reviewRows)
                     Divider()
                     CIFailingSection(rows: model.ciFailingRows)
+                    Divider()
+                    ActivitySection(rows: model.activityRows)
                 }
                 .padding(12)
                 Divider()
@@ -118,6 +120,30 @@ struct CIFailingSection: View {
                     RowView(row: row)
                 }
             }
+        }
+    }
+}
+
+struct ActivitySection: View {
+    let rows: [DropdownRow]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("New comments & reviews").font(.headline)
+            if rows.isEmpty {
+                Text("No recent activity in the last 24 hours.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 4)
+            } else {
+                ForEach(rows) { row in
+                    RowView(row: row)
+                }
+            }
+            Text("Showing activity from the last 24 hours.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .padding(.top, 2)
         }
     }
 }

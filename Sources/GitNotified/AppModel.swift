@@ -8,6 +8,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var setup: SetupStatus
     @Published private(set) var reviewRows: [DropdownRow] = []
     @Published private(set) var ciFailingRows: [DropdownRow] = []
+    @Published private(set) var activityRows: [DropdownRow] = []
     @Published private(set) var lastCheckedAt: Date?
     @Published private(set) var lastError: GHError?
     @Published var showingAddRepo: Bool = false
@@ -113,11 +114,15 @@ final class AppModel: ObservableObject {
     private func handleTick(_ outcome: PollOutcome) {
         for (k, v) in outcome.cursorsToSet { state.cursors[k] = v }
         for k in outcome.cursorsToClear { state.cursors.removeValue(forKey: k) }
-        if !outcome.cursorsToSet.isEmpty || !outcome.cursorsToClear.isEmpty {
-            persist()
-        }
+        state.initializedRepos.formUnion(outcome.reposInitialized)
+        let stateMutated = !outcome.cursorsToSet.isEmpty
+            || !outcome.cursorsToClear.isEmpty
+            || !outcome.reposInitialized.isEmpty
+        if stateMutated { persist() }
+
         reviewRows = outcome.reviewsRequestedSnapshot
         ciFailingRows = outcome.ciFailingSnapshot
+        activityRows = outcome.activitySnapshot
         lastCheckedAt = outcome.lastCheckedAt
         lastError = outcome.error
 
@@ -133,6 +138,23 @@ final class AppModel: ObservableObject {
                 title: title,
                 subtitle: subtitle,
                 url: ev.pr.url,
+                dedupeKey: ev.eventID
+            )
+        }
+
+        for ev in outcome.activityEvents {
+            let title: String
+            switch ev.kind {
+            case .comment:
+                title = ev.author.map { "New comment by @\($0)" } ?? "New comment"
+            case .review:
+                title = ev.author.map { "Review submitted by @\($0)" } ?? "Review submitted"
+            }
+            let subtitle = "\(ev.pr.displayRef) — \(ev.pr.title)"
+            notifications.post(
+                title: title,
+                subtitle: subtitle,
+                url: ev.url,
                 dedupeKey: ev.eventID
             )
         }
@@ -169,7 +191,7 @@ final class AppModel: ObservableObject {
     var iconState: MenubarIconState {
         if setup.pendingStep != nil { return .setup }
         if lastError != nil { return .error }
-        let count = reviewRows.count + ciFailingRows.count
+        let count = reviewRows.count + ciFailingRows.count + activityRows.count
         return count == 0 ? .idle : .active(count: count)
     }
 }

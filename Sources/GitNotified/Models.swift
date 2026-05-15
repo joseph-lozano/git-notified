@@ -24,6 +24,8 @@ struct WatchedRepo: Codable, Identifiable, Hashable {
 enum EventType: String, Codable {
     case reviewRequested = "review_requested"
     case ciState = "ci_state"
+    case comment = "comment"
+    case review = "review"
 }
 
 enum CIConclusion: String, Codable {
@@ -77,15 +79,46 @@ struct DropdownRow: Identifiable, Hashable {
     let summary: String
     let age: String
     let url: String
+    var sortKey: Date = .distantPast
 }
 
 struct AppState: Codable {
     var repos: [WatchedRepo] = []
     var cursors: [String: Cursor] = [:]
+    /// Repos whose first observation has been recorded — used to honor the
+    /// no-backfill-on-add rule. A repo absent from this set is treated as fresh:
+    /// its initial poll seeds cursors but suppresses notification firing.
+    var initializedRepos: Set<String> = []
 
     static func cursorKey(repo: WatchedRepo, prNumber: Int, type: EventType) -> String {
         "\(repo.slug)#\(prNumber):\(type.rawValue)"
     }
+
+    init(repos: [WatchedRepo] = [], cursors: [String: Cursor] = [:], initializedRepos: Set<String> = []) {
+        self.repos = repos
+        self.cursors = cursors
+        self.initializedRepos = initializedRepos
+    }
+
+    enum CodingKeys: String, CodingKey { case repos, cursors, initializedRepos }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.repos = (try? c.decode([WatchedRepo].self, forKey: .repos)) ?? []
+        self.cursors = (try? c.decode([String: Cursor].self, forKey: .cursors)) ?? [:]
+        self.initializedRepos = (try? c.decode(Set<String>.self, forKey: .initializedRepos)) ?? []
+    }
+}
+
+struct ActivityEvent: Codable, Hashable {
+    enum Kind: String, Codable { case comment, review }
+    var kind: Kind
+    var pr: PullRequestRef
+    var author: String?
+    var createdAt: Date
+    var url: String
+    var eventID: String
+    var bodyExcerpt: String?
 }
 
 enum MenubarIconState: Equatable {
