@@ -170,6 +170,7 @@ struct TriageRowView: View {
         case .unansweredComment: return .gray
         case .ciFailing: return .red
         case .reviewRequested: return .blue
+        case .waitingForReview: return .secondary
         }
     }
 }

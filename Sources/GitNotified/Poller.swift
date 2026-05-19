@@ -242,6 +242,13 @@ final class Poller {
             }
         }
 
+        // No actionable triage state means the PR is open but nothing is blocked on you —
+        // surface it as a neutral waiting row so the queue is always the full picture of
+        // your open PRs.
+        if states.isEmpty {
+            states.insert(.waitingForReview)
+        }
+
         return states
     }
 

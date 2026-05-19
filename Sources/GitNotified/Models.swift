@@ -239,6 +239,10 @@ enum TriageState: String, Codable, Hashable {
     case ciFailing
     case unansweredComment
     case reviewRequested
+    /// Catch-all for your own open non-draft PRs that have no other active triage state.
+    /// Surfaces in the dropdown so the queue is always a complete view of your open PRs,
+    /// but does not fire OS notifications and does not bump the menu-bar count badge.
+    case waitingForReview
 
     /// In-row priority — selects the single label when multiple states are active on one PR.
     /// Lower number wins (highest urgency).
@@ -249,18 +253,20 @@ enum TriageState: String, Codable, Hashable {
         case .unansweredComment: return 3
         case .approved: return 4
         case .reviewRequested: return 5
+        case .waitingForReview: return 6
         }
     }
 
     /// Cross-PR sort order within a section. "Easy wins first" — approvals at top,
-    /// CI-failing at the bottom of the actionable set.
+    /// CI-failing at the bottom of the actionable set, waiting after that.
     var sortOrder: Int {
         switch self {
         case .approved: return 1
         case .changesRequested: return 2
         case .unansweredComment: return 3
         case .ciFailing: return 4
-        case .reviewRequested: return 5
+        case .waitingForReview: return 5
+        case .reviewRequested: return 6
         }
     }
 
@@ -271,6 +277,7 @@ enum TriageState: String, Codable, Hashable {
         case .unansweredComment: return "Respond"
         case .ciFailing: return "Fix CI"
         case .reviewRequested: return "Review"
+        case .waitingForReview: return "Waiting for review"
         }
     }
 
@@ -281,7 +288,16 @@ enum TriageState: String, Codable, Hashable {
         case .unansweredComment: return "text.bubble"
         case .ciFailing: return "xmark.octagon.fill"
         case .reviewRequested: return "eye.circle"
+        case .waitingForReview: return "hourglass"
         }
+    }
+
+    /// Whether this state should fire an OS notification when it newly activates and
+    /// whether it should contribute to the menu-bar count badge. `waitingForReview` is
+    /// an awareness signal only — it doesn't ding you, and you've already implicitly
+    /// "acted" on it by opening the PR.
+    var isActionable: Bool {
+        self != .waitingForReview
     }
 }
 

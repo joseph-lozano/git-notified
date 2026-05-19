@@ -133,6 +133,7 @@ final class AppModel: ObservableObject {
         }
 
         for ev in outcome.newlyActiveStates {
+            guard ev.state.isActionable else { continue }
             let key = AppState.triageKey(owner: ev.pr.owner, name: ev.pr.name, number: ev.pr.number)
             guard !state.hiddenPRs.contains(key) else { continue }
             let title = ev.state.label
@@ -187,7 +188,9 @@ final class AppModel: ObservableObject {
     var iconState: MenubarIconState {
         if setup.pendingStep != nil { return .setup }
         if inErrorState { return .error }
-        let count = triageRows.count
+        // Only actionable states bump the badge — waiting-for-review rows are awareness
+        // signals and shouldn't make you feel like you have work to do.
+        let count = triageRows.filter { $0.state.isActionable }.count
         return count == 0 ? .idle : .active(count: count)
     }
 
