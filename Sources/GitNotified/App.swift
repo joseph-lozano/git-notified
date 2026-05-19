@@ -69,16 +69,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         // Reflect iconState changes (counts, error, setup) into the status-item title.
-        iconObservation = Publishers.CombineLatest4(
-            model.$reviewRows,
-            model.$ciFailingRows,
-            model.$commentRows,
-            model.$reviewSubmissionRows
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] _, _, _, _ in
-            self?.refreshStatusItemLabel()
-        }
+        iconObservation = model.$triageRows
+            .combineLatest(model.$setup, model.$appCause)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _, _ in
+                self?.refreshStatusItemLabel()
+            }
         refreshStatusItemLabel()
 
         model.bootstrap()
@@ -91,6 +87,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
+            makePopoverOpaque()
+        }
+    }
+
+    // NSPopover paints a vibrant translucent material behind its content. Walk up
+    // from the content view to the popover's NSVisualEffectView host and switch
+    // it to a window-background material so the dropdown reads as solid.
+    private func makePopoverOpaque() {
+        guard let contentView = popover.contentViewController?.view else { return }
+        var v: NSView? = contentView.superview
+        while let current = v {
+            if let effect = current as? NSVisualEffectView {
+                effect.material = .windowBackground
+                effect.state = .active
+                effect.isEmphasized = true
+                break
+            }
+            v = current.superview
         }
     }
 

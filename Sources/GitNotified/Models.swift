@@ -83,30 +83,47 @@ struct DropdownRow: Identifiable, Hashable {
 }
 
 struct AppState: Codable {
+    // Legacy fields — retained for safe rollback. Not written to on the new triage path,
+    // but tolerated on read so existing state.json files load cleanly.
     var repos: [WatchedRepo] = []
     var cursors: [String: Cursor] = [:]
-    /// Repos whose first observation has been recorded — used to honor the
-    /// no-backfill-on-add rule. A repo absent from this set is treated as fresh:
-    /// its initial poll seeds cursors but suppresses notification firing.
     var initializedRepos: Set<String> = []
-    /// Dropdown row IDs the user has explicitly dismissed via "Clear". Filtered out of
-    /// snapshots until the row's underlying event ages out of the activity window, at
-    /// which point the ID is pruned. This is dropdown-only — the notification path is
-    /// unaffected (cursors govern what gets notified).
     var dismissedRowIDs: Set<String> = []
+
+    /// Triage-queue cursors keyed by `"owner/repo#NNNN"`. Each entry stores the set of
+    /// active triage states at the previous poll; the next poll diffs against this set
+    /// to determine which states are newly active and should fire OS notifications.
+    /// A PR absent from this map is "first-observed" and seeds silently.
+    var triageCursors: [String: TriagePRCursor] = [:]
+
+    /// PRs explicitly hidden by the user via the row context menu. Suppressed from the
+    /// dropdown and from OS notifications until the PR is closed/merged (at which point
+    /// it drops out of the search results and is auto-pruned). Keyed by `"owner/repo#NNNN"`.
+    var hiddenPRs: Set<String> = []
 
     static func cursorKey(repo: WatchedRepo, prNumber: Int, type: EventType) -> String {
         "\(repo.slug)#\(prNumber):\(type.rawValue)"
     }
 
-    init(repos: [WatchedRepo] = [], cursors: [String: Cursor] = [:], initializedRepos: Set<String> = [], dismissedRowIDs: Set<String> = []) {
+    static func triageKey(owner: String, name: String, number: Int) -> String {
+        "\(owner)/\(name)#\(number)"
+    }
+
+    init(repos: [WatchedRepo] = [],
+         cursors: [String: Cursor] = [:],
+         initializedRepos: Set<String> = [],
+         dismissedRowIDs: Set<String> = [],
+         triageCursors: [String: TriagePRCursor] = [:],
+         hiddenPRs: Set<String> = []) {
         self.repos = repos
         self.cursors = cursors
         self.initializedRepos = initializedRepos
         self.dismissedRowIDs = dismissedRowIDs
+        self.triageCursors = triageCursors
+        self.hiddenPRs = hiddenPRs
     }
 
-    enum CodingKeys: String, CodingKey { case repos, cursors, initializedRepos, dismissedRowIDs }
+    enum CodingKeys: String, CodingKey { case repos, cursors, initializedRepos, dismissedRowIDs, triageCursors, hiddenPRs }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -114,6 +131,8 @@ struct AppState: Codable {
         self.cursors = (try? c.decode([String: Cursor].self, forKey: .cursors)) ?? [:]
         self.initializedRepos = (try? c.decode(Set<String>.self, forKey: .initializedRepos)) ?? []
         self.dismissedRowIDs = (try? c.decode(Set<String>.self, forKey: .dismissedRowIDs)) ?? []
+        self.triageCursors = (try? c.decode([String: TriagePRCursor].self, forKey: .triageCursors)) ?? [:]
+        self.hiddenPRs = (try? c.decode(Set<String>.self, forKey: .hiddenPRs)) ?? []
     }
 }
 
@@ -206,3 +225,95 @@ enum MenubarIconState: Equatable {
     case setup
     case error
 }
+
+// MARK: - Triage queue model
+
+enum TriageRole: String, Codable {
+    case author      // your PR
+    case reviewer    // someone requested your review
+}
+
+enum TriageState: String, Codable, Hashable {
+    case approved
+    case changesRequested
+    case ciFailing
+    case unansweredComment
+    case reviewRequested
+
+    /// In-row priority — selects the single label when multiple states are active on one PR.
+    /// Lower number wins (highest urgency).
+    var labelPriority: Int {
+        switch self {
+        case .ciFailing: return 1
+        case .changesRequested: return 2
+        case .unansweredComment: return 3
+        case .approved: return 4
+        case .reviewRequested: return 5
+        }
+    }
+
+    /// Cross-PR sort order within a section. "Easy wins first" — approvals at top,
+    /// CI-failing at the bottom of the actionable set.
+    var sortOrder: Int {
+        switch self {
+        case .approved: return 1
+        case .changesRequested: return 2
+        case .unansweredComment: return 3
+        case .ciFailing: return 4
+        case .reviewRequested: return 5
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .approved: return "Ready to merge"
+        case .changesRequested: return "Address feedback"
+        case .unansweredComment: return "Respond"
+        case .ciFailing: return "Fix CI"
+        case .reviewRequested: return "Review"
+        }
+    }
+
+    var glyph: String {
+        switch self {
+        case .approved: return "checkmark.seal.fill"
+        case .changesRequested: return "arrow.uturn.left.circle"
+        case .unansweredComment: return "text.bubble"
+        case .ciFailing: return "xmark.octagon.fill"
+        case .reviewRequested: return "eye.circle"
+        }
+    }
+}
+
+/// Per-PR aggregation produced by a poll. Carries the full state set (used for cursor
+/// diffing and OS notifications) plus the single label selected for the row.
+struct TriagePR: Hashable {
+    let pr: PullRequestRef
+    let role: TriageRole
+    let isDraft: Bool
+    let states: Set<TriageState>
+    let prUpdatedAt: Date
+
+    /// The state that drives the row's displayed label (lowest labelPriority).
+    var primaryState: TriageState? {
+        states.min(by: { $0.labelPriority < $1.labelPriority })
+    }
+}
+
+/// View-model row. Stable id is `"owner/repo#NNNN"` so SwiftUI animates updates.
+struct TriageRow: Identifiable, Hashable {
+    let id: String
+    let role: TriageRole
+    let pr: PullRequestRef
+    let state: TriageState
+    let age: String
+    let sortKey: Date
+}
+
+/// Persisted per-PR triage cursor. Stores the set of states active at the most recent poll
+/// so the next poll can diff against it and fire notifications only for newly-active states.
+struct TriagePRCursor: Codable, Equatable {
+    var states: Set<TriageState>
+    var lastSeenAt: Date
+}
+

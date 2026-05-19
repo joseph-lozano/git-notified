@@ -130,6 +130,45 @@ struct GHReview: Decodable, Hashable {
     let body: String?
 }
 
+// MARK: - Triage-shaped result types
+
+/// PR returned by `gh search prs --json number,title,url,updatedAt,isDraft,author,repository`.
+struct GHSearchPR: Decodable, Hashable {
+    let number: Int
+    let title: String
+    let url: String
+    let updatedAt: Date
+    let isDraft: Bool
+    let author: GHPRListing.GHAuthor?
+    let repository: GHSearchRepoRef
+
+    struct GHSearchRepoRef: Decodable, Hashable {
+        let name: String
+        let nameWithOwner: String
+    }
+
+    var owner: String {
+        repository.nameWithOwner.split(separator: "/").first.map(String.init) ?? ""
+    }
+}
+
+/// Detail fetched per PR via `gh pr view`. Holds the fields needed to derive triage states.
+struct GHPRDetail: Decodable {
+    let reviewDecision: String?       // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or null
+    let statusCheckRollup: [GHPRWithCI.GHCheckEntry]?
+    let commits: [GHCommitEntry]?
+
+    struct GHCommitEntry: Decodable, Hashable {
+        let oid: String?
+        let committedDate: Date?
+        let authors: [GHCommitAuthor]?
+
+        struct GHCommitAuthor: Decodable, Hashable {
+            let login: String?
+        }
+    }
+}
+
 /// Wraps the `gh` CLI. All calls are synchronous; callers must dispatch off the main thread.
 final class GHClient {
     private let executableSearchPaths = [
@@ -137,6 +176,10 @@ final class GHClient {
         "/usr/local/bin/gh",
         "/usr/bin/gh",
     ]
+
+    /// Cached `gh api user` login, looked up lazily. Used to identify "my" comments and
+    /// commits during triage-state derivation.
+    private var cachedLogin: String?
 
     func locateExecutable() -> String? {
         if let env = ProcessInfo.processInfo.environment["PATH"] {
@@ -277,6 +320,80 @@ final class GHClient {
         }
     }
 
+    // MARK: - Triage-shaped queries
+
+    /// Global search for open PRs you authored. Used by the triage queue's "Yours" section.
+    func searchAuthoredPRs() throws -> [GHSearchPR] {
+        try searchPRs(extraFlags: ["--author=@me"])
+    }
+
+    /// Global search for open PRs awaiting your review. Used by the "Reviews requested" section.
+    func searchReviewRequestedPRs() throws -> [GHSearchPR] {
+        try searchPRs(extraFlags: ["--review-requested=@me"])
+    }
+
+    private func searchPRs(extraFlags: [String]) throws -> [GHSearchPR] {
+        var args = [
+            "search", "prs",
+            "--state=open",
+            "--archived=false",
+            "--limit", "200",
+            "--json", "number,title,url,updatedAt,isDraft,author,repository",
+        ]
+        args.append(contentsOf: extraFlags)
+        let result = try run(args)
+        guard result.exitCode == 0 else { throw classify(result) }
+        do {
+            return try jsonDecoder().decode([GHSearchPR].self, from: Data(result.stdout.utf8))
+        } catch {
+            throw GHError.parseError("search prs: \(error.localizedDescription)")
+        }
+    }
+
+    /// Per-PR detail fetch: reviewDecision, CI rollup, recent commits. Called for PRs in the
+    /// "Yours" search results so triage states (approved / changes-requested / CI failing) can
+    /// be derived.
+    func prDetail(owner: String, name: String, number: Int) throws -> GHPRDetail {
+        let result = try run([
+            "pr", "view", String(number),
+            "--repo", "\(owner)/\(name)",
+            "--json", "reviewDecision,statusCheckRollup,commits",
+        ])
+        guard result.exitCode == 0 else { throw classify(result) }
+        do {
+            return try jsonDecoder().decode(GHPRDetail.self, from: Data(result.stdout.utf8))
+        } catch {
+            throw GHError.parseError("pr view \(owner)/\(name)#\(number): \(error.localizedDescription)")
+        }
+    }
+
+    /// Returns the current GitHub user's login, looked up via `gh api user` and cached for the
+    /// lifetime of this GHClient. Used by triage logic to recognize "my" comments and commits.
+    func currentUserLogin() throws -> String {
+        if let login = cachedLogin { return login }
+        let result = try run(["api", "user", "--jq", ".login"])
+        guard result.exitCode == 0 else { throw classify(result) }
+        let login = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !login.isEmpty else { throw GHError.parseError("empty login from `gh api user`") }
+        cachedLogin = login
+        return login
+    }
+
+    /// All issue comments on a PR (no `since` filter — triage needs full history to determine
+    /// "unanswered" state). Lighter wrapper around the existing pagination call.
+    func listAllPRIssueComments(owner: String, name: String, number: Int) throws -> [GHIssueComment] {
+        let result = try run([
+            "api", "--paginate",
+            "repos/\(owner)/\(name)/issues/\(number)/comments?per_page=100",
+        ])
+        guard result.exitCode == 0 else { throw classify(result) }
+        do {
+            return try jsonDecoder().decode([GHIssueComment].self, from: Data(result.stdout.utf8))
+        } catch {
+            throw GHError.parseError("comments: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Private
 
     private struct RunResult {
@@ -298,10 +415,27 @@ final class GHClient {
         proc.standardError = errPipe
 
         try proc.run()
-        proc.waitUntilExit()
 
-        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        // Drain both pipes on background queues before waiting for exit. If the child writes
+        // more than the OS pipe buffer (~64KB) and nobody is reading, it blocks on stdout/stderr
+        // forever and waitUntilExit() never returns — freezing the serial poller queue.
+        var outData = Data()
+        var errData = Data()
+        let group = DispatchGroup()
+        let q = DispatchQueue.global(qos: .userInitiated)
+        group.enter()
+        q.async {
+            outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        group.enter()
+        q.async {
+            errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        proc.waitUntilExit()
+        group.wait()
+
         return RunResult(
             exitCode: proc.terminationStatus,
             stdout: String(decoding: outData, as: UTF8.self),

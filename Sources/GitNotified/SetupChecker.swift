@@ -4,14 +4,12 @@ enum SetupStep: Equatable {
     case installGh
     case ghNotReachable    // installed somewhere on user PATH but not in app's runtime PATH (F4)
     case signIn
-    case addRepo
 
     var label: String {
         switch self {
         case .installGh: return "Install gh"
         case .ghNotReachable: return "`gh` not found in this app's environment"
         case .signIn: return "Sign in with `gh auth login`"
-        case .addRepo: return "Add a repository"
         }
     }
 }
@@ -20,7 +18,6 @@ struct SetupStatus: Equatable {
     var ghInstalled: Bool
     var ghReachable: Bool
     var signedIn: Bool
-    var hasRepo: Bool
     var authNetworkError: Bool
     var pendingStep: SetupStep?
 
@@ -54,7 +51,7 @@ final class SetupChecker {
                 signedIn = false
             }
         }
-        let hasRepo = state.repos.contains { $0.mode != .off }
+        _ = state  // legacy parameter retained for call-site stability; no per-repo step in the triage model.
 
         // F13: a network error on auth-check is an error-state condition, not a setup-state one.
         // Surface as no pending step so AppModel can route into AppCause.networkUnavailable instead.
@@ -63,7 +60,6 @@ final class SetupChecker {
             if !ghReachable && ghInstalled { return .ghNotReachable }
             if !ghReachable { return .installGh }
             if !signedIn { return .signIn }
-            if !hasRepo { return .addRepo }
             return nil
         }()
 
@@ -71,7 +67,6 @@ final class SetupChecker {
             ghInstalled: ghInstalled,
             ghReachable: ghReachable,
             signedIn: signedIn,
-            hasRepo: hasRepo,
             authNetworkError: authNetworkError,
             pendingStep: pending
         )

@@ -3,19 +3,10 @@ import AppKit
 
 struct DropdownView: View {
     @EnvironmentObject var model: AppModel
-    @State private var showingManage: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if showingManage {
-                ManageReposView(isPresented: $showingManage)
-            } else {
-                mainContent
-            }
-        }
-        .sheet(isPresented: $model.showingAddRepo) {
-            AddRepositoryView()
-                .environmentObject(model)
+            mainContent
         }
     }
 
@@ -37,12 +28,7 @@ struct DropdownView: View {
                         .padding(.horizontal, 12)
                         .padding(.top, 10)
                 }
-                if !model.repoFailures.isEmpty {
-                    RepoFailuresSection(failures: Array(model.repoFailures.values))
-                        .padding(12)
-                    Divider()
-                }
-                RepoGroupedListView()
+                TriageListView()
                     .padding(.vertical, 4)
             }
             Divider()
@@ -64,24 +50,6 @@ struct DropdownView: View {
 
             Divider()
 
-            Button {
-                model.showingAddRepo = true
-            } label: {
-                Label("Add repository…", systemImage: "plus")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                showingManage = true
-            } label: {
-                Label("Manage repositories…", systemImage: "slider.horizontal.3")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-
-            Divider()
-
             Button(role: .destructive) {
                 NSApplication.shared.terminate(nil)
             } label: {
@@ -98,107 +66,79 @@ struct DropdownView: View {
     }
 }
 
-// MARK: - Repo-grouped flat-events layout (V3, github.com/notifications-style)
+// MARK: - Triage queue
 
-struct RepoGroupedListView: View {
+struct TriageListView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        let buckets = DropdownGrouping.group(model: model)
-        if buckets.isEmpty {
-            Text("No outstanding items.")
+        let rows = model.triageRows
+        if rows.isEmpty {
+            Text("You're all clear")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                .padding(.vertical, 10)
         } else {
+            let yours = rows.filter { $0.role == .author }
+            let reviews = rows.filter { $0.role == .reviewer }
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(buckets) { repo in
-                    RepoGroupView(repo: repo)
+                if !yours.isEmpty {
+                    sectionHeader(title: "Yours", count: yours.count)
+                    ForEach(yours) { TriageRowView(row: $0) }
                 }
-                Text("Showing activity from the last 24 hours.")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 14)
-                    .padding(.top, 6)
-                    .padding(.bottom, 4)
+                if !reviews.isEmpty {
+                    sectionHeader(title: "Reviews requested", count: reviews.count)
+                    ForEach(reviews) { TriageRowView(row: $0) }
+                }
             }
         }
+    }
+
+    @ViewBuilder
+    private func sectionHeader(title: String, count: Int) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            Text("\(count)")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
     }
 }
 
-struct RepoGroupView: View {
+struct TriageRowView: View {
     @EnvironmentObject var model: AppModel
-    let repo: RepoBucket
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Text(repo.slug)
-                    .font(.system(size: 13, weight: .semibold))
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-                Text("\(repo.totalCount) item\(repo.totalCount == 1 ? "" : "s")")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Button {
-                    model.clearRepo(slug: repo.slug)
-                } label: {
-                    Text("Clear").font(.caption2)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Clear \(repo.slug)")
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
-
-            ForEach(flatten(repo)) { event in
-                EventCardView(event: event)
-            }
-        }
-    }
-
-    /// Flattens the bucket's four event-type arrays into a single list ordered newest-first.
-    private func flatten(_ repo: RepoBucket) -> [EventRow] {
-        var out: [EventRow] = []
-        for pr in repo.prs {
-            out.append(contentsOf: pr.reviewRequests.map { EventRow.from($0, kind: .reviewRequested, reasonPrefix: "review requested") })
-            out.append(contentsOf: pr.ciRows.map { EventRow.from($0, kind: .ciFailing, reasonPrefix: "CI failing") })
-            out.append(contentsOf: pr.commentRows.map { EventRow.from($0, kind: .comment) })
-            out.append(contentsOf: pr.reviewRows.map { EventRow.from($0, kind: .review) })
-        }
-        return out.sorted { $0.sortKey > $1.sortKey }
-    }
-}
-
-struct EventCardView: View {
-    @EnvironmentObject var model: AppModel
-    let event: EventRow
+    let row: TriageRow
 
     var body: some View {
         Button {
-            if let url = URL(string: event.url) { NSWorkspace.shared.open(url) }
+            if let url = URL(string: row.pr.url) { NSWorkspace.shared.open(url) }
         } label: {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: event.kind.glyph)
+                Image(systemName: row.state.glyph)
                     .font(.system(size: 12))
                     .foregroundColor(iconColor)
                     .frame(width: 14, alignment: .center)
                     .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(event.pr.title)
+                    Text(row.pr.title)
                         .font(.system(size: 13))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .foregroundColor(.primary)
-                    Text(event.reason)
+                    Text("\(row.pr.displayRef) · \(row.state.label)")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 6)
-                Text(event.age)
+                Text(row.age)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .padding(.top, 2)
@@ -211,26 +151,30 @@ struct EventCardView: View {
         .overlay(alignment: .top) { Divider().opacity(0.5) }
         .contextMenu {
             Button("Open in browser") {
-                if let url = URL(string: event.url) { NSWorkspace.shared.open(url) }
+                if let url = URL(string: row.pr.url) { NSWorkspace.shared.open(url) }
             }
-            Button("Dismiss") { model.dismissRow(id: event.id) }
+            Divider()
+            Button("Hide this PR") {
+                model.hidePR(id: row.id)
+            }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(event.pr.displayRef), \(event.pr.title), \(event.reason), \(event.age)")
+        .accessibilityLabel("\(row.pr.displayRef), \(row.pr.title), \(row.state.label), \(row.age)")
         .accessibilityAddTraits(.isButton)
     }
 
     private var iconColor: Color {
-        switch event.kind {
-        case .reviewRequested: return .blue
+        switch row.state {
+        case .approved: return .green
+        case .changesRequested: return .orange
+        case .unansweredComment: return .gray
         case .ciFailing: return .red
-        case .comment: return .gray
-        case .review: return .green
+        case .reviewRequested: return .blue
         }
     }
 }
 
-// MARK: - Resume banner, repo failures, status banner, setup, footer
+// MARK: - Resume banner, status banner, setup, footer
 
 struct ResumeBannerView: View {
     @EnvironmentObject var model: AppModel
@@ -271,7 +215,6 @@ struct SetupChecklistView: View {
                 checklistRow(done: setup.ghReachable, label: "Install `gh`", pending: setup.pendingStep == .installGh, detail: setup.pendingStep == .installGh ? "Download from cli.github.com" : nil)
             }
             checklistRow(done: setup.signedIn, label: "Sign in with `gh auth login`", pending: setup.pendingStep == .signIn, detail: setup.pendingStep == .signIn ? "Run `gh auth login` in your terminal" : nil)
-            checklistRow(done: setup.hasRepo, label: "Add a repository", pending: setup.pendingStep == .addRepo, detail: nil)
         }
     }
 
@@ -350,42 +293,31 @@ struct StatusBannerView: View {
     }
 }
 
-struct RepoFailuresSection: View {
-    @EnvironmentObject var model: AppModel
-    let failures: [RepoFailure]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(failures, id: \.slug) { f in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(f.slug).font(.subheadline)
-                        Text(f.copy).font(.caption).foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    Button("Remove") { model.removeRepo(slug: f.slug) }
-                        .buttonStyle(.bordered)
-                }
-                .padding(.vertical, 2)
-            }
-        }
-    }
-}
-
 struct FooterView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        HStack {
-            Text(footerText)
-                .font(.caption2)
-                .foregroundColor(.secondary)
+        HStack(spacing: 8) {
+            TimelineView(.periodic(from: .now, by: 30)) { _ in
+                Text(footerText)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            Button {
+                model.retryNow()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.caption2)
+            }
+            .buttonStyle(.borderless)
+            .help("Refresh now")
+            .accessibilityLabel("Refresh now")
             Spacer()
-            if model.dismissedRowCount > 0 {
+            if model.hiddenCount > 0 {
                 Button {
-                    model.restoreDismissed()
+                    model.unhideAll()
                 } label: {
-                    Text("Restore \(model.dismissedRowCount) dismissed")
+                    Text("Show \(model.hiddenCount) hidden")
                         .font(.caption2)
                 }
                 .buttonStyle(.borderless)
