@@ -152,20 +152,21 @@ struct GHSearchPR: Decodable, Hashable {
     }
 }
 
-/// Detail fetched per PR via `gh pr view`. Holds the fields needed to derive triage states.
-struct GHPRDetail: Decodable {
+/// Detail fetched per PR. Pulled via GraphQL (not `gh pr view --json`) because we need
+/// the aggregate `statusCheckRollup.state` — the same field GitHub uses to render the
+/// PR's green/yellow/red dot — and the CLI's JSON only exposes the flat check list.
+/// Without the aggregate, a non-blocking advisory check like `check_pr_title` would
+/// surface as Fix CI even though required checks all pass.
+struct GHPRDetail {
     let reviewDecision: String?       // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or null
-    let statusCheckRollup: [GHPRWithCI.GHCheckEntry]?
-    let commits: [GHCommitEntry]?
+    let mergeStateStatus: String?     // CLEAN, UNSTABLE, BLOCKED, BEHIND, DIRTY, DRAFT, HAS_HOOKS, UNKNOWN
+    /// Aggregate rollup of the last commit's required checks: SUCCESS, PENDING, FAILURE, ERROR, or nil if absent.
+    let ciAggregateState: String?
+    let commits: [GHCommitEntry]
 
-    struct GHCommitEntry: Decodable, Hashable {
-        let oid: String?
+    struct GHCommitEntry: Hashable {
         let committedDate: Date?
-        let authors: [GHCommitAuthor]?
-
-        struct GHCommitAuthor: Decodable, Hashable {
-            let login: String?
-        }
+        let authorLogins: [String]
     }
 }
 
@@ -350,21 +351,84 @@ final class GHClient {
         }
     }
 
-    /// Per-PR detail fetch: reviewDecision, CI rollup, recent commits. Called for PRs in the
-    /// "Yours" search results so triage states (approved / changes-requested / CI failing) can
-    /// be derived.
+    /// Per-PR detail fetch via GraphQL. Returns the fields needed to derive triage states,
+    /// including the aggregate `statusCheckRollup.state` from the last commit (the one GitHub
+    /// uses to render its merge button state).
     func prDetail(owner: String, name: String, number: Int) throws -> GHPRDetail {
+        let query = """
+        query($owner: String!, $name: String!, $number: Int!) {
+          repository(owner: $owner, name: $name) {
+            pullRequest(number: $number) {
+              reviewDecision
+              mergeStateStatus
+              lastCommit: commits(last: 1) {
+                nodes { commit { statusCheckRollup { state } } }
+              }
+              commits(last: 100) {
+                nodes {
+                  commit {
+                    committedDate
+                    authors(first: 5) { nodes { user { login } } }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
         let result = try run([
-            "pr", "view", String(number),
-            "--repo", "\(owner)/\(name)",
-            "--json", "reviewDecision,statusCheckRollup,commits",
+            "api", "graphql",
+            "-f", "query=\(query)",
+            "-F", "owner=\(owner)",
+            "-F", "name=\(name)",
+            "-F", "number=\(number)",
         ])
         guard result.exitCode == 0 else { throw classify(result) }
-        do {
-            return try jsonDecoder().decode(GHPRDetail.self, from: Data(result.stdout.utf8))
-        } catch {
-            throw GHError.parseError("pr view \(owner)/\(name)#\(number): \(error.localizedDescription)")
+        guard let data = result.stdout.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataRoot = root["data"] as? [String: Any],
+              let repo = dataRoot["repository"] as? [String: Any],
+              let pr = repo["pullRequest"] as? [String: Any]
+        else { throw GHError.parseError("graphql pr detail \(owner)/\(name)#\(number)") }
+
+        let reviewDecision = pr["reviewDecision"] as? String
+        let mergeStateStatus = pr["mergeStateStatus"] as? String
+        var aggregateState: String? = nil
+        if let last = pr["lastCommit"] as? [String: Any],
+           let nodes = last["nodes"] as? [[String: Any]],
+           let commit = nodes.first?["commit"] as? [String: Any],
+           let rollup = commit["statusCheckRollup"] as? [String: Any] {
+            aggregateState = rollup["state"] as? String
         }
+
+        var commits: [GHPRDetail.GHCommitEntry] = []
+        if let commitsObj = pr["commits"] as? [String: Any],
+           let nodes = commitsObj["nodes"] as? [[String: Any]]
+        {
+            let iso = ISO8601DateFormatter()
+            for n in nodes {
+                guard let commit = n["commit"] as? [String: Any] else { continue }
+                let date = (commit["committedDate"] as? String).flatMap { iso.date(from: $0) }
+                var logins: [String] = []
+                if let authors = commit["authors"] as? [String: Any],
+                   let aNodes = authors["nodes"] as? [[String: Any]]
+                {
+                    for a in aNodes {
+                        if let user = a["user"] as? [String: Any], let login = user["login"] as? String {
+                            logins.append(login)
+                        }
+                    }
+                }
+                commits.append(GHPRDetail.GHCommitEntry(committedDate: date, authorLogins: logins))
+            }
+        }
+
+        return GHPRDetail(
+            reviewDecision: reviewDecision,
+            mergeStateStatus: mergeStateStatus,
+            ciAggregateState: aggregateState,
+            commits: commits
+        )
     }
 
     /// Returns the current GitHub user's login, looked up via `gh api user` and cached for the

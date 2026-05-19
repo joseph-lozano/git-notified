@@ -199,8 +199,11 @@ final class Poller {
     ) -> Set<TriageState> {
         var states: Set<TriageState> = []
 
-        let conclusion = ciConclusion(from: detail.statusCheckRollup)
-        if conclusion == .failing {
+        // CI is failing iff GitHub's aggregate rollup state on the last commit is FAILURE
+        // or ERROR. That aggregate matches what github.com renders for the PR's merge dot,
+        // so advisory non-required checks like `check_pr_title` don't surface here.
+        let aggregate = detail.ciAggregateState?.uppercased() ?? ""
+        if aggregate == "FAILURE" || aggregate == "ERROR" {
             states.insert(.ciFailing)
         }
 
@@ -210,7 +213,7 @@ final class Poller {
 
         switch detail.reviewDecision?.uppercased() {
         case "APPROVED":
-            if conclusion != .failing {
+            if !states.contains(.ciFailing) {
                 states.insert(.approved)
             }
         case "CHANGES_REQUESTED":
@@ -229,8 +232,8 @@ final class Poller {
                 .filter { $0.user?.login == myLogin }
                 .map(\.created_at)
                 .max() ?? .distantPast
-            let myLatestCommit = (detail.commits ?? [])
-                .filter { ($0.authors ?? []).contains(where: { $0.login == myLogin }) }
+            let myLatestCommit = detail.commits
+                .filter { $0.authorLogins.contains(myLogin) }
                 .compactMap(\.committedDate)
                 .max() ?? .distantPast
             let myLatestActivity = max(myLatestComment, myLatestCommit)
@@ -247,38 +250,6 @@ final class Poller {
     private func isHuman(_ login: String?) -> Bool {
         guard let login = login else { return false }
         return !login.hasSuffix("[bot]")
-    }
-
-    /// Adapted from `GHPRWithCI.ciConclusion` but operating on the bare entries returned by
-    /// `gh pr view --json statusCheckRollup`.
-    private func ciConclusion(from rollup: [GHPRWithCI.GHCheckEntry]?) -> CIConclusion {
-        guard let rollup = rollup, !rollup.isEmpty else { return .none }
-        var anyFailing = false
-        var anyInProgress = false
-        for entry in rollup {
-            if let c = entry.conclusion?.uppercased() {
-                switch c {
-                case "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE":
-                    anyFailing = true
-                case "SUCCESS", "NEUTRAL", "SKIPPED", "STALE":
-                    break
-                default:
-                    anyInProgress = true
-                }
-            } else if let s = entry.state?.uppercased() {
-                switch s {
-                case "FAILURE", "ERROR": anyFailing = true
-                case "SUCCESS": break
-                case "PENDING": anyInProgress = true
-                default: anyInProgress = true
-                }
-            } else if let st = entry.status?.uppercased(), st != "COMPLETED" {
-                anyInProgress = true
-            }
-        }
-        if anyFailing { return .failing }
-        if anyInProgress { return .inProgress }
-        return .passing
     }
 
     /// Sorts the triage list for the dropdown: Yours block first (ordered by primary-state
