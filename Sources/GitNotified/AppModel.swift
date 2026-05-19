@@ -187,11 +187,15 @@ final class AppModel: ObservableObject {
 
     var iconState: MenubarIconState {
         if setup.pendingStep != nil { return .setup }
+        // First poll hasn't landed yet — don't claim inbox-zero when we just haven't looked.
+        if lastCheckedAt == nil && !inErrorState { return .loading }
         if inErrorState { return .error }
-        // Only actionable states bump the badge — waiting-for-review rows are awareness
-        // signals and shouldn't make you feel like you have work to do.
-        let count = triageRows.filter { $0.state.isActionable }.count
-        return count == 0 ? .idle : .active(count: count)
+        if triageRows.isEmpty { return .idle }
+        let counts = Dictionary(grouping: triageRows, by: \.state).mapValues(\.count)
+        let buckets = counts
+            .map { MenubarBucket(state: $0.key, count: $0.value) }
+            .sorted { $0.state.labelPriority < $1.state.labelPriority }
+        return .active(buckets: buckets)
     }
 
     // MARK: - Error state

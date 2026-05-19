@@ -48,8 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Build the status item with a guaranteed-visible title — text first so the icon
-        // is unambiguously present even before SF Symbol rendering kicks in.
+        // Bell SF Symbol + "GN" identify the app; the title also carries a state
+        // emoji + queue count when there's anything triage-worthy.
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.title = "GN"
@@ -111,18 +111,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshStatusItemLabel() {
         guard let button = statusItem.button else { return }
         switch model.iconState {
+        case .loading:
+            button.title = "GN 🔄"
+            button.image = NSImage(systemSymbolName: "bell", accessibilityDescription: nil)
+            button.setAccessibilityLabel("git-notified, checking…")
         case .idle:
-            button.title = "GN"
-            button.image = NSImage(systemSymbolName: "bell", accessibilityDescription: "git-notified, no outstanding items")
-        case .active(let n):
-            button.title = "GN \(n)"
-            button.image = NSImage(systemSymbolName: "bell.fill", accessibilityDescription: "git-notified, \(n) outstanding items")
+            button.title = "GN 🎉"
+            button.image = NSImage(systemSymbolName: "bell", accessibilityDescription: nil)
+            button.setAccessibilityLabel("git-notified, inbox zero")
+        case .active(let buckets):
+            let segments = buckets.map { "\($0.state.menubarEmoji)\($0.count)" }
+            button.title = "GN " + segments.joined(separator: " ")
+            button.image = NSImage(systemSymbolName: "bell.fill", accessibilityDescription: nil)
+            let total = buckets.reduce(0) { $0 + $1.count }
+            let breakdown = buckets.map { "\($0.count) \($0.state.label)" }.joined(separator: ", ")
+            button.setAccessibilityLabel("git-notified, \(total) in queue: \(breakdown)")
         case .setup:
-            button.title = "GN ⚙"
-            button.image = NSImage(systemSymbolName: "bell.badge.plus", accessibilityDescription: "git-notified, setup required")
+            button.title = "GN ⚙️"
+            button.image = NSImage(systemSymbolName: "bell.badge.plus", accessibilityDescription: nil)
+            button.setAccessibilityLabel("git-notified, setup required")
         case .error:
-            button.title = "GN !"
-            button.image = NSImage(systemSymbolName: "bell.badge.fill", accessibilityDescription: "git-notified, error")
+            button.title = "GN ⚠️"
+            button.image = NSImage(systemSymbolName: "bell.badge.fill", accessibilityDescription: nil)
+            button.setAccessibilityLabel("git-notified, error")
         }
     }
 }

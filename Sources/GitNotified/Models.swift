@@ -219,9 +219,18 @@ struct ResumeBanner: Equatable {
     }
 }
 
+struct MenubarBucket: Equatable {
+    let state: TriageState
+    let count: Int
+}
+
 enum MenubarIconState: Equatable {
+    /// First poll hasn't completed — we don't yet know whether the queue is empty.
+    case loading
     case idle
-    case active(count: Int)
+    /// Buckets are sorted by `labelPriority` (most urgent first) and contain only non-empty
+    /// states, so every queued PR shows up under its own emoji and count.
+    case active(buckets: [MenubarBucket])
     case setup
     case error
 }
@@ -289,6 +298,18 @@ enum TriageState: String, Codable, Hashable {
         case .ciFailing: return "xmark.octagon.fill"
         case .reviewRequested: return "eye.circle"
         case .waitingForReview: return "hourglass"
+        }
+    }
+
+    /// Emoji surfaced in the menu bar when this state is the top non-empty bucket.
+    var menubarEmoji: String {
+        switch self {
+        case .ciFailing: return "🚨"
+        case .changesRequested: return "📝"
+        case .unansweredComment: return "💬"
+        case .approved: return "✅"
+        case .reviewRequested: return "👀"
+        case .waitingForReview: return "⏳"
         }
     }
 
