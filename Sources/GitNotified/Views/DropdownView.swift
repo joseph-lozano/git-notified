@@ -150,8 +150,14 @@ struct TriageRowView: View {
                     // explicit frames the composed Text right-aligns as a unit and the
                     // dot floats horizontally with the diff width.
                     HStack(spacing: 4) {
-                        Text(ciEmoji ?? " ")
-                            .frame(width: 14, alignment: .center)
+                        ZStack {
+                            if let sym = ciSymbol {
+                                Image(systemName: sym.name)
+                                    .font(.system(size: 9))
+                                    .foregroundColor(sym.color)
+                            }
+                        }
+                        .frame(width: 14, alignment: .center)
                         diffSizeLine
                             .frame(width: 80, alignment: .trailing)
                             .lineLimit(1)
@@ -209,12 +215,14 @@ struct TriageRowView: View {
             + Text("-\(del)").foregroundColor(.red)
     }
 
-    /// Last-commit CI rollup as a dot. nil when there are no checks configured.
-    private var ciEmoji: String? {
+    /// Last-commit CI rollup as a colored SF Symbol dot. nil when there are no checks
+    /// configured. SF Symbol instead of literal emoji because emoji glyphs render past
+    /// their line height in SwiftUI and get clipped by the row's bounds.
+    private var ciSymbol: (name: String, color: Color)? {
         switch row.ciState?.uppercased() {
-        case "SUCCESS": return "🟢"
-        case "PENDING", "EXPECTED": return "🟡"
-        case "FAILURE", "ERROR": return "🔴"
+        case "SUCCESS": return ("circle.fill", .green)
+        case "PENDING", "EXPECTED": return ("circle.fill", .yellow)
+        case "FAILURE", "ERROR": return ("circle.fill", .red)
         default: return nil
         }
     }
