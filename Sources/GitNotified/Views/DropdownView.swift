@@ -132,39 +132,12 @@ struct TriageRowView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.pr.title)
                         .font(.system(size: 13))
-                        .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .foregroundColor(.primary)
-                    Text("\(row.pr.displayRef) · \(row.state.label)")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
+                    metadataLine
                 }
-                Spacer(minLength: 6)
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(row.age)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                    // Split CI dot and diff size into two fixed-width slots so dots and
-                    // numbers each form clean vertical columns across rows. Without the
-                    // explicit frames the composed Text right-aligns as a unit and the
-                    // dot floats horizontally with the diff width.
-                    HStack(spacing: 4) {
-                        ZStack {
-                            if let sym = ciSymbol {
-                                Image(systemName: sym.name)
-                                    .font(.system(size: 9))
-                                    .foregroundColor(sym.color)
-                            }
-                        }
-                        .frame(width: 14, alignment: .center)
-                        diffSizeLine
-                            .frame(width: 80, alignment: .trailing)
-                            .lineLimit(1)
-                    }
-                    .font(.system(size: 11))
-                }
-                .padding(.top, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -186,8 +159,47 @@ struct TriageRowView: View {
         .accessibilityAddTraits(.isButton)
     }
 
+    /// Single dense metadata line under the title. Left: `age · @author` (the repo/PR
+    /// reference is dropped — the title's conventional commit prefix already implies
+    /// the area, and the ref was the first thing to truncate anyway). Right: diff
+    /// size + CI dot in a fixed-width trailing slot so the CI dot aligns across rows.
+    @ViewBuilder
+    private var metadataLine: some View {
+        HStack(spacing: 6) {
+            Text(leftMetadataString)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 4)
+            if row.additions != nil, row.deletions != nil {
+                diffSizeLine.lineLimit(1)
+            }
+            ZStack {
+                if let sym = ciSymbol {
+                    Image(systemName: sym.name)
+                        .font(.system(size: 9))
+                        .foregroundColor(sym.color)
+                }
+            }
+            .frame(width: 12, alignment: .center)
+        }
+        .font(.system(size: 11))
+    }
+
+    /// Left half of the metadata line. Age leads (most-glanced signal); on reviewer
+    /// rows the author follows.
+    private var leftMetadataString: String {
+        guard row.role == .reviewer, let login = row.pr.authorLogin else {
+            return row.age
+        }
+        return "\(row.age) · @\(login)"
+    }
+
     private var accessibilityLabel: String {
         var parts = ["\(row.pr.displayRef), \(row.pr.title), \(row.state.label), \(row.age)"]
+        if row.role == .reviewer, let login = row.pr.authorLogin {
+            parts.append("by @\(login)")
+        }
         if let add = row.additions, let del = row.deletions {
             parts.append("+\(add), -\(del) lines")
         }

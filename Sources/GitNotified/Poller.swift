@@ -129,7 +129,7 @@ final class Poller {
         for pr in yours {
             let ref = PullRequestRef(
                 owner: pr.owner, name: pr.repository.name, number: pr.number,
-                title: pr.title, url: pr.url
+                title: pr.title, url: pr.url, authorLogin: pr.author?.login
             )
             let detail: GHPRDetail
             do {
@@ -164,7 +164,7 @@ final class Poller {
         for pr in liveReviewers {
             let ref = PullRequestRef(
                 owner: pr.owner, name: pr.repository.name, number: pr.number,
-                title: pr.title, url: pr.url
+                title: pr.title, url: pr.url, authorLogin: pr.author?.login
             )
             let extra = extras["\(pr.owner)/\(pr.repository.name)#\(pr.number)"]
             triagePRs.append(TriagePR(

@@ -61,6 +61,9 @@ struct PullRequestRef: Codable, Hashable {
     var number: Int
     var title: String
     var url: String
+    /// GitHub login of the PR author. Nil for older cached refs or PRs whose search
+    /// payload didn't include an author (rare — typically suspended/deleted users).
+    var authorLogin: String? = nil
 
     var slug: String { "\(owner)/\(name)" }
     var displayRef: String { "\(slug)#\(number)" }
