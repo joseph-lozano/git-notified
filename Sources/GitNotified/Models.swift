@@ -256,6 +256,11 @@ enum TriageState: String, Codable, Hashable {
     /// Surfaces in the dropdown so the queue is always a complete view of your open PRs,
     /// but does not fire OS notifications and does not bump the menu-bar count badge.
     case waitingForReview
+    /// A PR you reviewed that is now approved/ready to merge (waiting on the author or
+    /// another maintainer to merge). Stays in the reviewer section, sorted to the bottom,
+    /// until the PR is merged or closed (at which point it drops out of search results).
+    /// Awareness signal only — no notification.
+    case reviewedApproved
 
     /// In-row priority — selects the single label when multiple states are active on one PR.
     /// Lower number wins (highest urgency).
@@ -267,6 +272,7 @@ enum TriageState: String, Codable, Hashable {
         case .approved: return 4
         case .reviewRequested: return 5
         case .waitingForReview: return 6
+        case .reviewedApproved: return 7
         }
     }
 
@@ -280,6 +286,7 @@ enum TriageState: String, Codable, Hashable {
         case .ciFailing: return 4
         case .waitingForReview: return 5
         case .reviewRequested: return 6
+        case .reviewedApproved: return 7
         }
     }
 
@@ -291,6 +298,7 @@ enum TriageState: String, Codable, Hashable {
         case .ciFailing: return "Fix CI"
         case .reviewRequested: return "Review"
         case .waitingForReview: return "Waiting for review"
+        case .reviewedApproved: return "Approved — ready to ship"
         }
     }
 
@@ -302,6 +310,7 @@ enum TriageState: String, Codable, Hashable {
         case .ciFailing: return "xmark.octagon.fill"
         case .reviewRequested: return "eye.circle"
         case .waitingForReview: return "hourglass"
+        case .reviewedApproved: return "checkmark.seal"
         }
     }
 
@@ -314,15 +323,28 @@ enum TriageState: String, Codable, Hashable {
         case .approved: return "✅"
         case .reviewRequested: return "👀"
         case .waitingForReview: return "⏳"
+        case .reviewedApproved: return "✅"
+        }
+    }
+
+    /// The TriageState used to bucket this row in the menubar title. Most states bucket
+    /// as themselves; `reviewedApproved` rolls up under `approved` so the title shows a
+    /// single ✅ segment covering both "my PR is ready to merge" and "PR I reviewed is
+    /// approved" rather than two adjacent ✅ counts.
+    var menubarBucket: TriageState {
+        switch self {
+        case .reviewedApproved: return .approved
+        default: return self
         }
     }
 
     /// Whether this state should fire an OS notification when it newly activates and
     /// whether it should contribute to the menu-bar count badge. `waitingForReview` is
     /// an awareness signal only — it doesn't ding you, and you've already implicitly
-    /// "acted" on it by opening the PR.
+    /// "acted" on it by opening the PR. `reviewedApproved` is similarly informational —
+    /// the merge action belongs to someone else.
     var isActionable: Bool {
-        self != .waitingForReview
+        self != .waitingForReview && self != .reviewedApproved
     }
 }
 

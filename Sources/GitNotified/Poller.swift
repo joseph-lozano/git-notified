@@ -159,7 +159,24 @@ final class Poller {
         // come from one batched GraphQL request (`prRowExtras`) so this stays O(1) request
         // instead of O(N) per reviewer PR. Failure is tolerated — rows just render bare.
         let liveReviewers = reviewRequested.filter { !$0.isDraft }
-        let extraRefs = liveReviewers.map { (owner: $0.owner, name: $0.repository.name, number: $0.number) }
+
+        // Reviewer-section tail: PRs I reviewed that are now approved and waiting on someone
+        // else to merge. Stay visible until the PR is merged or closed. Failure here is
+        // tolerated — the section just won't grow a tail.
+        let reviewedApproved = (try? gh.searchReviewedByMeApprovedPRs()) ?? []
+        let liveReviewerKeys = Set(liveReviewers.map {
+            AppState.triageKey(owner: $0.owner, name: $0.repository.name, number: $0.number)
+        })
+        let reviewedApprovedDeduped = reviewedApproved.filter { pr in
+            guard !pr.isDraft else { return false }
+            let key = AppState.triageKey(owner: pr.owner, name: pr.repository.name, number: pr.number)
+            return !liveReviewerKeys.contains(key)
+        }
+
+        // Batch the extras request across both buckets so we still issue one GraphQL call.
+        let extraRefs = (liveReviewers + reviewedApprovedDeduped).map {
+            (owner: $0.owner, name: $0.repository.name, number: $0.number)
+        }
         let extras = (try? gh.prRowExtras(refs: extraRefs)) ?? [:]
         for pr in liveReviewers {
             let ref = PullRequestRef(
@@ -170,6 +187,19 @@ final class Poller {
             triagePRs.append(TriagePR(
                 pr: ref, role: .reviewer, isDraft: false,
                 states: [.reviewRequested], prUpdatedAt: pr.updatedAt,
+                additions: extra?.additions, deletions: extra?.deletions,
+                ciState: extra?.ciState
+            ))
+        }
+        for pr in reviewedApprovedDeduped {
+            let ref = PullRequestRef(
+                owner: pr.owner, name: pr.repository.name, number: pr.number,
+                title: pr.title, url: pr.url, authorLogin: pr.author?.login
+            )
+            let extra = extras["\(pr.owner)/\(pr.repository.name)#\(pr.number)"]
+            triagePRs.append(TriagePR(
+                pr: ref, role: .reviewer, isDraft: false,
+                states: [.reviewedApproved], prUpdatedAt: pr.updatedAt,
                 additions: extra?.additions, deletions: extra?.deletions,
                 ciState: extra?.ciState
             ))
@@ -270,7 +300,8 @@ final class Poller {
     }
 
     /// Sorts the triage list for the dropdown: Yours block first (ordered by primary-state
-    /// sortOrder, tie-break newest first), then Reviews requested (newest first).
+    /// sortOrder, tie-break newest first), then Reviews requested (active review-requested
+    /// rows on top, reviewed-approved tail at the bottom; newest first within each).
     private func sortForDisplay(_ prs: [TriagePR]) -> [TriagePR] {
         let yours = prs.filter { $0.role == .author }.sorted { a, b in
             let ao = a.primaryState?.sortOrder ?? Int.max
@@ -278,7 +309,12 @@ final class Poller {
             if ao != bo { return ao < bo }
             return a.prUpdatedAt > b.prUpdatedAt
         }
-        let reviews = prs.filter { $0.role == .reviewer }.sorted { $0.prUpdatedAt > $1.prUpdatedAt }
+        let reviews = prs.filter { $0.role == .reviewer }.sorted { a, b in
+            let ao = a.primaryState?.sortOrder ?? Int.max
+            let bo = b.primaryState?.sortOrder ?? Int.max
+            if ao != bo { return ao < bo }
+            return a.prUpdatedAt > b.prUpdatedAt
+        }
         return yours + reviews
     }
 

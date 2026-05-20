@@ -191,7 +191,7 @@ final class AppModel: ObservableObject {
         if lastCheckedAt == nil && !inErrorState { return .loading }
         if inErrorState { return .error }
         if triageRows.isEmpty { return .idle }
-        let counts = Dictionary(grouping: triageRows, by: \.state).mapValues(\.count)
+        let counts = Dictionary(grouping: triageRows, by: { $0.state.menubarBucket }).mapValues(\.count)
         let buckets = counts
             .map { MenubarBucket(state: $0.key, count: $0.value) }
             .sorted { $0.state.labelPriority < $1.state.labelPriority }

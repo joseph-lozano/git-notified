@@ -335,6 +335,13 @@ final class GHClient {
         try searchPRs(extraFlags: ["--review-requested=@me"])
     }
 
+    /// Global search for open PRs you have already reviewed that are now approved (by anyone)
+    /// and just need to be merged. These stay at the bottom of the reviewer section until
+    /// the PR is merged or closed (at which point GitHub drops them from search results).
+    func searchReviewedByMeApprovedPRs() throws -> [GHSearchPR] {
+        try searchPRs(extraFlags: ["--reviewed-by=@me", "--review=approved"])
+    }
+
     private func searchPRs(extraFlags: [String]) throws -> [GHSearchPR] {
         var args = [
             "search", "prs",

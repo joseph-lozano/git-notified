@@ -247,6 +247,7 @@ struct TriageRowView: View {
         case .ciFailing: return .red
         case .reviewRequested: return .blue
         case .waitingForReview: return .secondary
+        case .reviewedApproved: return .mint
         }
     }
 }
