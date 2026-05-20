@@ -87,11 +87,11 @@ struct TriageListView: View {
             let reviews = rows.filter { $0.role == .reviewer }
             VStack(alignment: .leading, spacing: 0) {
                 if !yours.isEmpty {
-                    sectionHeader(title: "Yours", count: yours.count)
+                    sectionHeader(title: "Your PRs", count: yours.count)
                     ForEach(yours) { TriageRowView(row: $0) }
                 }
                 if !reviews.isEmpty {
-                    sectionHeader(title: "Reviews requested", count: reviews.count)
+                    sectionHeader(title: "Awaiting Your Review", count: reviews.count)
                     ForEach(reviews) { TriageRowView(row: $0) }
                 }
             }
