@@ -439,16 +439,24 @@ final class GHClient {
         )
     }
 
-    /// Batched diff-size fetch for a list of PRs. One GraphQL request returns
-    /// `additions`/`deletions` for every PR via aliased `repository` sub-queries, so we
-    /// avoid an N+1 over reviewer-role PRs (which otherwise have no per-PR detail call).
-    /// Returned map keys are `"owner/name#number"`. Missing or null entries are omitted.
+    /// Extras the dropdown wants on every row but search results don't carry: diff size
+    /// and the last-commit CI rollup state. Fetched by `prRowExtras` in one batched
+    /// GraphQL request so reviewer-role PRs don't take an N+1 hit.
+    struct PRRowExtras {
+        let additions: Int
+        let deletions: Int
+        let ciState: String?   // SUCCESS, PENDING, FAILURE, ERROR, EXPECTED — or nil if no CI
+    }
+
+    /// One GraphQL request returns `additions`/`deletions` + last-commit rollup state for
+    /// every PR via aliased `repository` sub-queries. Returned map keys are
+    /// `"owner/name#number"`; entries with missing diff sizes are omitted.
     /// GitHub repo + owner names are restricted to `[A-Za-z0-9._-]`, so direct
     /// interpolation into the GraphQL string is safe — no quotes to escape.
-    func prDiffSizes(refs: [(owner: String, name: String, number: Int)]) throws -> [String: (additions: Int, deletions: Int)] {
+    func prRowExtras(refs: [(owner: String, name: String, number: Int)]) throws -> [String: PRRowExtras] {
         guard !refs.isEmpty else { return [:] }
         let aliases = refs.enumerated().map { idx, ref in
-            "pr\(idx): repository(owner: \"\(ref.owner)\", name: \"\(ref.name)\") { pullRequest(number: \(ref.number)) { additions deletions } }"
+            "pr\(idx): repository(owner: \"\(ref.owner)\", name: \"\(ref.name)\") { pullRequest(number: \(ref.number)) { additions deletions lastCommit: commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } }"
         }.joined(separator: "\n  ")
         let query = "query {\n  \(aliases)\n}"
         let result = try run(["api", "graphql", "-f", "query=\(query)"])
@@ -456,15 +464,22 @@ final class GHClient {
         guard let data = result.stdout.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let dataRoot = root["data"] as? [String: Any]
-        else { throw GHError.parseError("graphql pr diff sizes") }
-        var out: [String: (additions: Int, deletions: Int)] = [:]
+        else { throw GHError.parseError("graphql pr row extras") }
+        var out: [String: PRRowExtras] = [:]
         for (idx, ref) in refs.enumerated() {
             guard let repo = dataRoot["pr\(idx)"] as? [String: Any],
                   let pr = repo["pullRequest"] as? [String: Any],
                   let a = pr["additions"] as? Int,
                   let d = pr["deletions"] as? Int
             else { continue }
-            out["\(ref.owner)/\(ref.name)#\(ref.number)"] = (a, d)
+            var ciState: String? = nil
+            if let last = pr["lastCommit"] as? [String: Any],
+               let nodes = last["nodes"] as? [[String: Any]],
+               let commit = nodes.first?["commit"] as? [String: Any],
+               let rollup = commit["statusCheckRollup"] as? [String: Any] {
+                ciState = rollup["state"] as? String
+            }
+            out["\(ref.owner)/\(ref.name)#\(ref.number)"] = PRRowExtras(additions: a, deletions: d, ciState: ciState)
         }
         return out
     }

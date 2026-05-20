@@ -331,10 +331,12 @@ struct TriagePR: Hashable {
     let isDraft: Bool
     let states: Set<TriageState>
     let prUpdatedAt: Date
-    /// Diff size from GraphQL. Authored PRs read it from `prDetail`; reviewer PRs get
-    /// it from a single batched `prDiffSizes` request so neither path adds an N+1.
+    /// Diff size + CI rollup state from GraphQL. Authored PRs read it from `prDetail`;
+    /// reviewer PRs get it from a single batched `prRowExtras` request so neither path
+    /// adds an N+1.
     let additions: Int?
     let deletions: Int?
+    let ciState: String?
 
     /// The state that drives the row's displayed label (lowest labelPriority).
     var primaryState: TriageState? {
@@ -352,6 +354,7 @@ struct TriageRow: Identifiable, Hashable {
     let sortKey: Date
     let additions: Int?
     let deletions: Int?
+    let ciState: String?
 }
 
 /// Persisted per-PR triage cursor. Stores the set of states active at the most recent poll

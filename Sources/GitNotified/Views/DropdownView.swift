@@ -145,10 +145,18 @@ struct TriageRowView: View {
                     Text(row.age)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
-                    diffSizeLine
-                        .font(.system(size: 11))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
+                    // Split CI dot and diff size into two fixed-width slots so dots and
+                    // numbers each form clean vertical columns across rows. Without the
+                    // explicit frames the composed Text right-aligns as a unit and the
+                    // dot floats horizontally with the diff width.
+                    HStack(spacing: 4) {
+                        Text(ciEmoji ?? " ")
+                            .frame(width: 14, alignment: .center)
+                        diffSizeLine
+                            .frame(width: 80, alignment: .trailing)
+                            .lineLimit(1)
+                    }
+                    .font(.system(size: 11))
                 }
                 .padding(.top, 2)
             }
@@ -177,16 +185,38 @@ struct TriageRowView: View {
         if let add = row.additions, let del = row.deletions {
             parts.append("+\(add), -\(del) lines")
         }
+        if let ci = ciAccessibilityWord {
+            parts.append("CI \(ci)")
+        }
         return parts.joined(separator: ", ")
     }
 
-    /// "+123 -45" colored green/red, rendered under the age in the right-hand column.
-    /// `EmptyView` would force an `AnyView` wrapper, so we return an empty `Text` instead.
+    private var ciAccessibilityWord: String? {
+        switch row.ciState?.uppercased() {
+        case "SUCCESS": return "passing"
+        case "PENDING", "EXPECTED": return "pending"
+        case "FAILURE", "ERROR": return "failing"
+        default: return nil
+        }
+    }
+
+    /// "+123 -45" colored green/red. Rendered in its own fixed-width slot in the row;
+    /// the CI dot lives in a sibling slot so dots/numbers each form vertical columns.
     private var diffSizeLine: Text {
         guard let add = row.additions, let del = row.deletions else { return Text("") }
         return Text("+\(add)").foregroundColor(.green)
             + Text(" ").foregroundColor(.secondary)
             + Text("-\(del)").foregroundColor(.red)
+    }
+
+    /// Last-commit CI rollup as a dot. nil when there are no checks configured.
+    private var ciEmoji: String? {
+        switch row.ciState?.uppercased() {
+        case "SUCCESS": return "🟢"
+        case "PENDING", "EXPECTED": return "🟡"
+        case "FAILURE", "ERROR": return "🔴"
+        default: return nil
+        }
     }
 
     private var iconColor: Color {
