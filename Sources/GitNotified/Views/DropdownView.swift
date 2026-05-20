@@ -138,10 +138,16 @@ struct TriageRowView: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 6)
-                Text(row.age)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .padding(.top, 2)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(row.age)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    diffSizeLine
+                        .font(.system(size: 11))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                .padding(.top, 2)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -159,8 +165,25 @@ struct TriageRowView: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(row.pr.displayRef), \(row.pr.title), \(row.state.label), \(row.age)")
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(.isButton)
+    }
+
+    private var accessibilityLabel: String {
+        var parts = ["\(row.pr.displayRef), \(row.pr.title), \(row.state.label), \(row.age)"]
+        if let add = row.additions, let del = row.deletions {
+            parts.append("+\(add), -\(del) lines")
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    /// "+123 -45" colored green/red, rendered under the age in the right-hand column.
+    /// `EmptyView` would force an `AnyView` wrapper, so we return an empty `Text` instead.
+    private var diffSizeLine: Text {
+        guard let add = row.additions, let del = row.deletions else { return Text("") }
+        return Text("+\(add)").foregroundColor(.green)
+            + Text(" ").foregroundColor(.secondary)
+            + Text("-\(del)").foregroundColor(.red)
     }
 
     private var iconColor: Color {

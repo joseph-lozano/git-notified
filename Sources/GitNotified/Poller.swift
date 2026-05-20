@@ -149,19 +149,27 @@ final class Poller {
             guard !states.isEmpty else { continue }
             triagePRs.append(TriagePR(
                 pr: ref, role: .author, isDraft: pr.isDraft,
-                states: states, prUpdatedAt: pr.updatedAt
+                states: states, prUpdatedAt: pr.updatedAt,
+                additions: detail.additions, deletions: detail.deletions
             ))
         }
 
-        // 3. Reviews requested — single state per PR, skip drafts.
-        for pr in reviewRequested where !pr.isDraft {
+        // 3. Reviews requested — single state per PR, skip drafts. Diff sizes come from
+        // one batched GraphQL request (`prDiffSizes`) so this stays O(1) request instead
+        // of O(N) per reviewer PR. Failure is tolerated — rows just render without sizes.
+        let liveReviewers = reviewRequested.filter { !$0.isDraft }
+        let sizeRefs = liveReviewers.map { (owner: $0.owner, name: $0.repository.name, number: $0.number) }
+        let sizes = (try? gh.prDiffSizes(refs: sizeRefs)) ?? [:]
+        for pr in liveReviewers {
             let ref = PullRequestRef(
                 owner: pr.owner, name: pr.repository.name, number: pr.number,
                 title: pr.title, url: pr.url
             )
+            let size = sizes["\(pr.owner)/\(pr.repository.name)#\(pr.number)"]
             triagePRs.append(TriagePR(
                 pr: ref, role: .reviewer, isDraft: false,
-                states: [.reviewRequested], prUpdatedAt: pr.updatedAt
+                states: [.reviewRequested], prUpdatedAt: pr.updatedAt,
+                additions: size?.additions, deletions: size?.deletions
             ))
         }
 

@@ -113,7 +113,9 @@ final class AppModel: ObservableObject {
                 pr: triage.pr,
                 state: primary,
                 age: Poller.ageString(from: triage.prUpdatedAt),
-                sortKey: triage.prUpdatedAt
+                sortKey: triage.prUpdatedAt,
+                additions: triage.additions,
+                deletions: triage.deletions
             )
         }
 

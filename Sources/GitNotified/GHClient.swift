@@ -162,6 +162,8 @@ struct GHPRDetail {
     let mergeStateStatus: String?     // CLEAN, UNSTABLE, BLOCKED, BEHIND, DIRTY, DRAFT, HAS_HOOKS, UNKNOWN
     /// Aggregate rollup of the last commit's required checks: SUCCESS, PENDING, FAILURE, ERROR, or nil if absent.
     let ciAggregateState: String?
+    let additions: Int?
+    let deletions: Int?
     let commits: [GHCommitEntry]
 
     struct GHCommitEntry: Hashable {
@@ -361,6 +363,8 @@ final class GHClient {
             pullRequest(number: $number) {
               reviewDecision
               mergeStateStatus
+              additions
+              deletions
               lastCommit: commits(last: 1) {
                 nodes { commit { statusCheckRollup { state } } }
               }
@@ -393,6 +397,8 @@ final class GHClient {
 
         let reviewDecision = pr["reviewDecision"] as? String
         let mergeStateStatus = pr["mergeStateStatus"] as? String
+        let additions = pr["additions"] as? Int
+        let deletions = pr["deletions"] as? Int
         var aggregateState: String? = nil
         if let last = pr["lastCommit"] as? [String: Any],
            let nodes = last["nodes"] as? [[String: Any]],
@@ -427,8 +433,40 @@ final class GHClient {
             reviewDecision: reviewDecision,
             mergeStateStatus: mergeStateStatus,
             ciAggregateState: aggregateState,
+            additions: additions,
+            deletions: deletions,
             commits: commits
         )
+    }
+
+    /// Batched diff-size fetch for a list of PRs. One GraphQL request returns
+    /// `additions`/`deletions` for every PR via aliased `repository` sub-queries, so we
+    /// avoid an N+1 over reviewer-role PRs (which otherwise have no per-PR detail call).
+    /// Returned map keys are `"owner/name#number"`. Missing or null entries are omitted.
+    /// GitHub repo + owner names are restricted to `[A-Za-z0-9._-]`, so direct
+    /// interpolation into the GraphQL string is safe — no quotes to escape.
+    func prDiffSizes(refs: [(owner: String, name: String, number: Int)]) throws -> [String: (additions: Int, deletions: Int)] {
+        guard !refs.isEmpty else { return [:] }
+        let aliases = refs.enumerated().map { idx, ref in
+            "pr\(idx): repository(owner: \"\(ref.owner)\", name: \"\(ref.name)\") { pullRequest(number: \(ref.number)) { additions deletions } }"
+        }.joined(separator: "\n  ")
+        let query = "query {\n  \(aliases)\n}"
+        let result = try run(["api", "graphql", "-f", "query=\(query)"])
+        guard result.exitCode == 0 else { throw classify(result) }
+        guard let data = result.stdout.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataRoot = root["data"] as? [String: Any]
+        else { throw GHError.parseError("graphql pr diff sizes") }
+        var out: [String: (additions: Int, deletions: Int)] = [:]
+        for (idx, ref) in refs.enumerated() {
+            guard let repo = dataRoot["pr\(idx)"] as? [String: Any],
+                  let pr = repo["pullRequest"] as? [String: Any],
+                  let a = pr["additions"] as? Int,
+                  let d = pr["deletions"] as? Int
+            else { continue }
+            out["\(ref.owner)/\(ref.name)#\(ref.number)"] = (a, d)
+        }
+        return out
     }
 
     /// Returns the current GitHub user's login, looked up via `gh api user` and cached for the
