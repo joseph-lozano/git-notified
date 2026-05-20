@@ -61,6 +61,7 @@ until you click "Show N hidden" in the footer.
 ## Troubleshooting
 
 **Menu bar shows `GN ⚙️` (setup needed):**
+
 - "Install gh" — run `brew install gh`.
 - "gh not found in this app's environment" — gh is installed but not on the
   app's PATH. This happens when launching from Finder / Login Items with a
@@ -71,21 +72,3 @@ until you click "Show N hidden" in the footer.
 **Menu bar shows `GN ⚠️` (error):**
 Click the bar to see the cause (rate-limited, network unavailable, etc).
 Most resolve themselves on the next poll.
-
-**PRs you hid keep coming back:**
-That bug is fixed — if you're still seeing it, rebuild from `main`.
-
-## Rebuilding
-
-```bash
-./build-app.sh debug
-open build/git-notified.app
-```
-
-The `build/` directory is gitignored. Each rebuild kills the running instance
-implicitly (macOS replaces the bundle), but if a stale copy lingers:
-
-```bash
-pkill -f git-notified.app
-open build/git-notified.app
-```
