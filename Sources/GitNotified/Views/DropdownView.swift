@@ -8,6 +8,9 @@ struct DropdownView: View {
         VStack(alignment: .leading, spacing: 0) {
             mainContent
         }
+        // Solid backing on top of the NSVisualEffectView so the popover reads as fully
+        // opaque — `.windowBackground` material alone still bleeds desktop colors through.
+        .background(Color(NSColor.windowBackgroundColor))
     }
 
     @ViewBuilder
