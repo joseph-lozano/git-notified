@@ -97,8 +97,9 @@ struct AppState: Codable {
     var triageCursors: [String: TriagePRCursor] = [:]
 
     /// PRs explicitly hidden by the user via the row context menu. Suppressed from the
-    /// dropdown and from OS notifications until the PR is closed/merged (at which point
-    /// it drops out of the search results and is auto-pruned). Keyed by `"owner/repo#NNNN"`.
+    /// dropdown and from OS notifications. Cleared only by the user via the "Show N hidden"
+    /// footer — never auto-pruned, because transient absence from search results would
+    /// otherwise un-hide a PR on its next reappearance. Keyed by `"owner/repo#NNNN"`.
     var hiddenPRs: Set<String> = []
 
     static func cursorKey(repo: WatchedRepo, prNumber: Int, type: EventType) -> String {

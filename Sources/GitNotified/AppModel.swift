@@ -93,13 +93,10 @@ final class AppModel: ObservableObject {
         // are dropped so a future reappearance counts as first-observed.
         state.triageCursors = outcome.triageCursorsToCommit
 
-        // Auto-prune hidden PRs that are no longer in the search results (merged/closed).
-        // Keeps the hidden set bounded over time.
-        let liveKeys = Set(outcome.triageCursorsToCommit.keys)
-        let stale = state.hiddenPRs.subtracting(liveKeys)
-        if !stale.isEmpty {
-            state.hiddenPRs.subtract(stale)
-        }
+        // hiddenPRs is intentionally never auto-pruned: a PR can temporarily fall out of
+        // search results (transient API errors, the 200-result cap, criteria churn) and
+        // any pruning here would silently un-hide it on the next reappearance. The user
+        // clears hides explicitly via the "Show N hidden" footer.
 
         persist()
 
