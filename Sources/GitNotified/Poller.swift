@@ -40,7 +40,7 @@ final class Poller {
     /// effect under the triage queue model.
     var activityWindowProvider: (() -> TimeInterval)?
 
-    init(gh: GHClient, baseInterval: TimeInterval = 60, jitterFraction: Double = 0.15) {
+    init(gh: GHClient, baseInterval: TimeInterval = 150, jitterFraction: Double = 0.15) {
         self.gh = gh
         self.baseInterval = baseInterval
         self.jitterFraction = jitterFraction
