@@ -130,6 +130,14 @@ struct TriageRowView: View {
                     .frame(width: 14, alignment: .center)
                     .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 2) {
+                    (
+                        Text("#\(row.pr.number)").fontWeight(.semibold).foregroundColor(.primary)
+                            + Text(" \(row.pr.slug)")
+                    )
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     Text(row.pr.title)
                         .font(.system(size: 13))
                         .multilineTextAlignment(.leading)
@@ -159,9 +167,9 @@ struct TriageRowView: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    /// Single dense metadata line under the title. Left: `age · @author` (the repo/PR
-    /// reference is dropped — the title's conventional commit prefix already implies
-    /// the area, and the ref was the first thing to truncate anyway). Right: diff
+    /// Single dense metadata line under the title. Left: `age · @author`. The repo/PR
+    /// reference lives above the title as a wrapping breadcrumb instead — keeping it off
+    /// this line means age + author never get truncated by a long repo name. Right: diff
     /// size + CI dot in a fixed-width trailing slot so the CI dot aligns across rows.
     @ViewBuilder
     private var metadataLine: some View {
