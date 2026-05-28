@@ -389,15 +389,28 @@ struct FooterView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-            Button {
-                model.retryNow()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.caption2)
+            // Swap to a spinner while a user-initiated refresh is in flight so the click
+            // produces visible feedback even on a fast poll. Fixed-size slot keeps the
+            // surrounding row from reflowing on the swap.
+            ZStack {
+                if model.isRefreshing {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .scaleEffect(0.7)
+                        .accessibilityLabel("Refreshing")
+                } else {
+                    Button {
+                        model.retryNow()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Refresh now")
+                    .accessibilityLabel("Refresh now")
+                }
             }
-            .buttonStyle(.borderless)
-            .help("Refresh now")
-            .accessibilityLabel("Refresh now")
+            .frame(width: 16, height: 16)
             Spacer()
             if model.hiddenCount > 0 {
                 Button {
@@ -412,6 +425,9 @@ struct FooterView: View {
     }
 
     private var footerText: String {
+        if model.isRefreshing {
+            return "Refreshing…"
+        }
         if model.lastError != nil {
             return "Last check failed"
         }

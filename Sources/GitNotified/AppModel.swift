@@ -16,6 +16,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var appCause: AppCause?
     @Published private(set) var repoFailures: [String: RepoFailure] = [:]
 
+    /// True between a user-initiated refresh (Refresh now button / retry banner) and the
+    /// next tick landing. The footer reflects this with a "Refreshing…" message and a
+    /// spinner so the click registers visually, even when the poll finishes fast.
+    @Published private(set) var isRefreshing: Bool = false
+
     /// Hysteresis: the icon flips to .error on a single failed poll but only flips back
     /// after two consecutive successful polls.
     private var consecutiveSuccesses: Int = 0
@@ -89,6 +94,10 @@ final class AppModel: ObservableObject {
     // MARK: - Tick handling
 
     private func handleTick(_ outcome: PollOutcome) {
+        // Any tick (user-initiated or scheduled) clears the refresh spinner — the queue is
+        // now current as of `lastCheckedAt` and there's nothing left to show "in progress".
+        isRefreshing = false
+
         // Commit the new triage cursor map wholesale — PRs absent from the search results
         // are dropped so a future reappearance counts as first-observed.
         state.triageCursors = outcome.triageCursorsToCommit
@@ -230,6 +239,7 @@ final class AppModel: ObservableObject {
     }
 
     func retryNow() {
+        isRefreshing = true
         poller.pokeNow()
     }
 
